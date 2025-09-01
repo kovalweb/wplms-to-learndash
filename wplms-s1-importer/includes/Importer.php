@@ -82,42 +82,21 @@ class Importer {
 			return $stats;
 		}
 
-		private function load_payload( $path ) {
-			$ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
-			if ( 'zip' === $ext ) {
-				if ( ! class_exists( '\\ZipArchive' ) ) {
-					throw new \RuntimeException( 'ZipArchive not available on server.' );
-				}
-				$zip = new \ZipArchive();
-				if ( true !== $zip->open( $path ) ) {
-					throw new \RuntimeException( 'Unable to open zip file.' );
-				}
-				$json = null;
-				for ( $i = 0; $i < $zip->numFiles; $i++ ) {
-					$name = $zip->getNameIndex( $i );
-					if ( substr( $name, -5 ) === '.json' ) {
-						$json = $zip->getFromIndex( $i );
-						break;
-					}
-				}
-				$zip->close();
-				if ( ! $json ) throw new \RuntimeException( 'No JSON found inside zip.' );
-				$payload = json_decode( $json, true );
-				if ( json_last_error() !== JSON_ERROR_NONE ) {
-					throw new \RuntimeException( 'Invalid JSON in zip: ' . json_last_error_msg() );
-				}
-				return $payload;
-			}
-			if ( 'json' === $ext ) {
-				$raw = file_get_contents( $path );
-				$payload = json_decode( $raw, true );
-				if ( json_last_error() !== JSON_ERROR_NONE ) {
-					throw new \RuntimeException( 'Invalid JSON: ' . json_last_error_msg() );
-				}
-				return $payload;
-			}
-			throw new \RuntimeException( 'Unsupported file type: ' . $ext );
-		}
+                private function load_payload( $path ) {
+                        $ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
+                        if ( 'json' !== $ext ) {
+                                throw new \RuntimeException( 'Unsupported file type: ' . $ext );
+                        }
+                        $raw = file_get_contents( $path );
+                        if ( false === $raw ) {
+                                throw new \RuntimeException( 'Unable to read file.' );
+                        }
+                        $payload = json_decode( $raw, true );
+                        if ( json_last_error() !== JSON_ERROR_NONE ) {
+                                throw new \RuntimeException( 'Invalid JSON: ' . json_last_error_msg() );
+                        }
+                        return $payload;
+                }
 
                 private function import_course( $course ) {
                         $old_id   = (int) array_get( $course, 'old_id', 0 );
