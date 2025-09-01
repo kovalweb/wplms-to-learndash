@@ -12,13 +12,10 @@ class Importer {
 
 		public function set_dry_run( $dry ) { $this->dry_run = (bool) $dry; }
 
-		public function run( $payload ) {
-			if ( is_string( $payload ) ) {
-				$payload = $this->load_payload( $payload );
-			}
-			if ( ! is_array( $payload ) ) {
-				throw new \RuntimeException( 'Invalid import payload' );
-			}
+                public function run( array $payload ) {
+                        if ( ! is_array( $payload ) ) {
+                                throw new \RuntimeException( 'Invalid import payload' );
+                        }
 
 			$stats = [
 				'courses'=>0,'lessons'=>0,'quizzes'=>0,'assignments'=>0,'certificates'=>0,
@@ -82,21 +79,7 @@ class Importer {
 			return $stats;
 		}
 
-                private function load_payload( $path ) {
-                        $ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
-                        if ( 'json' !== $ext ) {
-                                throw new \RuntimeException( 'Unsupported file type: ' . $ext );
-                        }
-                        $raw = file_get_contents( $path );
-                        if ( false === $raw ) {
-                                throw new \RuntimeException( 'Unable to read file.' );
-                        }
-                        $payload = json_decode( $raw, true );
-                        if ( json_last_error() !== JSON_ERROR_NONE ) {
-                                throw new \RuntimeException( 'Invalid JSON: ' . json_last_error_msg() );
-                        }
-                        return $payload;
-                }
+
 
                 private function import_course( $course ) {
                         $old_id   = (int) array_get( $course, 'old_id', 0 );

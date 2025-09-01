@@ -20,20 +20,37 @@ class Admin {
 			);
 		}
 
-		public function render() {
-			if ( ! \current_user_can( 'manage_options' ) ) return;
-			$idmap   = new IdMap();
-			$stats   = \get_option( \WPLMS_S1I_OPT_RUNSTATS, [] );
-			$en_pool = \get_option( \WPLMS_S1I_OPT_ENROLL_POOL, [] );
-			?>
-			<div class="wrap">
-				<h1>WPLMS → LearnDash Importer (PoC)</h1>
-				<p>Version <?php echo \esc_html( \WPLMS_S1I_VER ); ?>. Use this to import the JSON created by WPLMS S1 Exporter.</p>
+                public function render() {
+                        if ( ! \current_user_can( 'manage_options' ) ) return;
 
-				<h2 class="title">Run Import</h2>
-				<form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
-					<?php \wp_nonce_field( 'wplms_s1i_run' ); ?>
-					<input type="hidden" name="action" value="wplms_s1i_run" />
+                        $report = null;
+                        if ( isset( $_GET['report'] ) ) {
+                                $key    = preg_replace( '/[^a-z0-9-]/i', '', (string) $_GET['report'] );
+                                $report = \get_transient( 'wplms_s1i_last_report_' . $key );
+                        }
+
+                        $idmap        = new IdMap();
+                        $stats_option = \get_option( \WPLMS_S1I_OPT_RUNSTATS, [] );
+                        $en_pool      = \get_option( \WPLMS_S1I_OPT_ENROLL_POOL, [] );
+                        $stats        = ( $report && ! empty( $report['dry'] ) ) ? (array) array_get( $report, 'stats', [] ) : $stats_option;
+                        ?>
+                        <div class="wrap">
+                                <h1>WPLMS → LearnDash Importer (PoC)</h1>
+                                <p>Version <?php echo \esc_html( \WPLMS_S1I_VER ); ?>. Use this to import the JSON created by WPLMS S1 Exporter.</p>
+
+                                <?php if ( $report ) : ?>
+                                        <h2 class="title">Run Report <?php echo $report['dry'] ? '<span style="font-size:0.8em;background:#ddd;padding:2px 6px;border-radius:3px;">Dry run</span>' : '<span style="font-size:0.8em;background:#ddd;padding:2px 6px;border-radius:3px;">Real run</span>'; ?></h2>
+                                        <?php if ( ! empty( $report['error'] ) ) : ?>
+                                                <div class="notice notice-error"><p><?php echo \esc_html( $report['error'] ); ?></p></div>
+                                        <?php endif; ?>
+                                        <pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo \esc_html( print_r( array_get( $report, 'stats', [] ), true ) ); ?></pre>
+                                        <p>Log file: <code><?php echo \esc_html( array_get( $report, 'log', '' ) ); ?></code></p>
+                                <?php endif; ?>
+
+                                <h2 class="title">Run Import</h2>
+                                <form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
+                                        <?php \wp_nonce_field( 'wplms_s1i_run' ); ?>
+                                        <input type="hidden" name="action" value="wplms_s1i_run" />
                                         <table class="form-table" role="presentation">
                                                 <tr>
                                                         <th scope="row"><label for="wplms_s1i_file">JSON file only</label></th>
@@ -44,29 +61,29 @@ class Admin {
                                                         <td><label><input type="checkbox" name="dry" id="wplms_s1i_dry" value="1" /> Analyze only (no content will be created)</label></td>
                                                 </tr>
                                         </table>
-					<?php \submit_button( 'Start Import' ); ?>
-				</form>
+                                        <?php \submit_button( 'Start Import' ); ?>
+                                </form>
 
-				<h2 class="title">Utilities</h2>
-				<form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>">
-					<?php \wp_nonce_field( 'wplms_s1i_reset' ); ?>
-					<input type="hidden" name="action" value="wplms_s1i_reset" />
-					<?php \submit_button( 'Reset ID Map & Stats', 'delete' ); ?>
-				</form>
+                                <h2 class="title">Utilities</h2>
+                                <form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>">
+                                        <?php \wp_nonce_field( 'wplms_s1i_reset' ); ?>
+                                        <input type="hidden" name="action" value="wplms_s1i_reset" />
+                                        <?php \submit_button( 'Reset ID Map & Stats', 'delete' ); ?>
+                                </form>
 
-				<h2 class="title">ID Map (summary)</h2>
-				<pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo \esc_html( print_r( $idmap->get_all(), true ) ); ?></pre>
+                                <h2 class="title">ID Map (summary)<?php echo ( $report && ! empty( $report['dry'] ) ) ? ' <small>(Dry run doesn\'t update ID Map)</small>' : ''; ?></h2>
+                                <pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo \esc_html( print_r( $idmap->get_all(), true ) ); ?></pre>
 
-				<h2 class="title">Last Run Stats</h2>
-				<pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo \esc_html( print_r( $stats, true ) ); ?></pre>
+                                <h2 class="title">Last Run Stats</h2>
+                                <pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo \esc_html( print_r( $stats, true ) ); ?></pre>
 
-				<h2 class="title">Enrollments Pool (deferred)</h2>
-				<p>Stored per original course ID for later user mapping.</p>
-				<pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo \esc_html( print_r( [ 'courses'=> count( $en_pool ) ], true ) ); ?></pre>
+                                <h2 class="title">Enrollments Pool (deferred)</h2>
+                                <p>Stored per original course ID for later user mapping.</p>
+                                <pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo \esc_html( print_r( [ 'courses'=> count( $en_pool ) ], true ) ); ?></pre>
 
-			</div>
-			<?php
-		}
+                        </div>
+                        <?php
+                }
 
 		public function handle_import() {
 			if ( ! \current_user_can( 'manage_options' ) ) \wp_die( 'Unauthorized' );
@@ -108,15 +125,27 @@ class Admin {
                         $importer = new Importer( $logger, $idmap );
                         $importer->set_dry_run( $dry );
 
+                        $report = [
+                                'dry'   => $dry,
+                                'stats' => [],
+                                'log'   => '',
+                        ];
+
                         try {
-                                $stats = $importer->run( $data );
-                                $url   = \add_query_arg( [ 'page'=>$this->page_slug, 'done'=>1, 'log'=>rawurlencode( $logger->path() ) ], \admin_url( 'tools.php' ) );
-                                \wp_safe_redirect( $url );
-                                exit;
+                                $stats          = $importer->run( $data );
+                                $report['stats'] = $stats;
+                                $report['log']   = $logger->path();
                         } catch ( \Throwable $e ) {
-                                \wp_die( 'Import failed: ' . \esc_html( $e->getMessage() ) );
+                                $report['error'] = $e->getMessage();
+                                $report['log']   = $logger->path();
+                                $logger->write( 'import failed: ' . $e->getMessage(), [ 'trace' => $e->getTraceAsString() ] );
                         }
-		}
+
+                        $key = \wp_generate_uuid4();
+                        \set_transient( 'wplms_s1i_last_report_' . $key, $report, 15 * \MINUTE_IN_SECONDS );
+                        \wp_safe_redirect( \add_query_arg( [ 'page' => $this->page_slug, 'report' => $key ], \admin_url( 'tools.php' ) ) );
+                        exit;
+                }
 
                 public function handle_reset() {
                         if ( ! \current_user_can( 'manage_options' ) ) \wp_die( 'Unauthorized' );
