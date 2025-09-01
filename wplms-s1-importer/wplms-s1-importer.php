@@ -22,10 +22,10 @@ namespace {
                 define( 'WPLMS_S1I_FILE', __FILE__ );
         }
         if ( ! defined( 'WPLMS_S1I_DIR' ) ) {
-                define( 'WPLMS_S1I_DIR', plugin_dir_path( __FILE__ ) );
+                define( 'WPLMS_S1I_DIR', \plugin_dir_path( __FILE__ ) );
         }
         if ( ! defined( 'WPLMS_S1I_URL' ) ) {
-                define( 'WPLMS_S1I_URL', plugin_dir_url( __FILE__ ) );
+                define( 'WPLMS_S1I_URL', \plugin_dir_url( __FILE__ ) );
         }
 
         // Options keys
@@ -45,9 +45,9 @@ namespace WPLMS_S1I {
 		private $dir;
 		private $file;
 		public function __construct() {
-			$uploads   = wp_upload_dir();
-			$this->dir = trailingslashit( $uploads['basedir'] ) . 'wplms-s1-importer/logs/';
-			wp_mkdir_p( $this->dir );
+			$uploads   = \wp_upload_dir();
+			$this->dir = \trailingslashit( $uploads['basedir'] ) . 'wplms-s1-importer/logs/';
+			\wp_mkdir_p( $this->dir );
 			$stamp     = gmdate( 'Ymd-His' );
 			$this->file = $this->dir . 'import-' . $stamp . '.log';
 		}
@@ -58,7 +58,7 @@ namespace WPLMS_S1I {
 			}
 			$line = '[' . gmdate( 'c' ) . '] ' . $msg;
 			if ( $context ) {
-				$line .= ' ' . wp_json_encode( $context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+				$line .= ' ' . \wp_json_encode( $context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 			}
 			$line .= "\n";
 			file_put_contents( $this->file, $line, FILE_APPEND );
@@ -69,7 +69,7 @@ namespace WPLMS_S1I {
 	class IdMap {
 		private $map;
 		public function __construct() {
-			$this->map = get_option( \WPLMS_S1I_OPT_IDMAP, [
+			$this->map = \get_option( \WPLMS_S1I_OPT_IDMAP, [
 				'courses'     => [],
 				'units'       => [], // mapped to Lessons in LearnDash
 				'quizzes'     => [],
@@ -81,11 +81,11 @@ namespace WPLMS_S1I {
 		public function get( $type, $old_id ) { return isset( $this->map[ $type ][ $old_id ] ) ? (int) $this->map[ $type ][ $old_id ] : 0; }
 		public function set( $type, $old_id, $new_id ) {
 			$this->map[ $type ][ (string) $old_id ] = (int) $new_id;
-			update_option( \WPLMS_S1I_OPT_IDMAP, $this->map, false );
+			\update_option( \WPLMS_S1I_OPT_IDMAP, $this->map, false );
 		}
 		public function reset() {
 			$this->map = [ 'courses'=>[], 'units'=>[], 'quizzes'=>[], 'assignments'=>[], 'certificates'=>[] ];
-			update_option( \WPLMS_S1I_OPT_IDMAP, $this->map, false );
+			\update_option( \WPLMS_S1I_OPT_IDMAP, $this->map, false );
 		}
 	}
 
@@ -95,7 +95,7 @@ namespace WPLMS_S1I {
 	}
 
 	function normalize_slug( $slug ) {
-		$slug = sanitize_title( $slug );
+		$slug = \sanitize_title( $slug );
 		return $slug ?: null;
 	}
 
@@ -119,18 +119,18 @@ namespace WPLMS_S1I {
 		require_once ABSPATH . 'wp-admin/includes/media.php';
 		require_once ABSPATH . 'wp-admin/includes/image.php';
 		$timeout = 60;
-		$tmp = download_url( $url, $timeout );
-		if ( is_wp_error( $tmp ) ) {
+		$tmp = \download_url( $url, $timeout );
+		if ( \is_wp_error( $tmp ) ) {
 			$logger->write( 'media download failed', [ 'url' => $url, 'error' => $tmp->get_error_message() ] );
 			return 0;
 		}
-		$filename = wp_basename( parse_url( $url, PHP_URL_PATH ) );
+		$filename = \wp_basename( parse_url( $url, PHP_URL_PATH ) );
 		$file     = [
 			'name'     => $filename ?: 'remote-file',
 			'tmp_name' => $tmp,
 		];
 		$overrides = [ 'test_form' => false ];
-		$results   = wp_handle_sideload( $file, $overrides );
+		$results   = \wp_handle_sideload( $file, $overrides );
 		if ( isset( $results['error'] ) ) {
 			@unlink( $tmp );
 			$logger->write( 'media sideload failed', [ 'url' => $url, 'error' => $results['error'] ] );
@@ -138,14 +138,14 @@ namespace WPLMS_S1I {
 		}
 		$attachment = [
 			'post_mime_type' => $results['type'],
-			'post_title'     => sanitize_file_name( $filename ),
+			'post_title'     => \sanitize_file_name( $filename ),
 			'post_content'   => '',
 			'post_status'    => 'inherit',
 		];
-		$attach_id = wp_insert_attachment( $attachment, $results['file'], $attach_to_post_id );
-		if ( ! is_wp_error( $attach_id ) ) {
-			wp_update_attachment_metadata( $attach_id, wp_generate_attachment_metadata( $attach_id, $results['file'] ) );
-			set_post_thumbnail( $attach_to_post_id, $attach_id );
+		$attach_id = \wp_insert_attachment( $attachment, $results['file'], $attach_to_post_id );
+		if ( ! \is_wp_error( $attach_id ) ) {
+			\wp_update_attachment_metadata( $attach_id, \wp_generate_attachment_metadata( $attach_id, $results['file'] ) );
+			\set_post_thumbnail( $attach_to_post_id, $attach_id );
 			return $attach_id;
 		}
 		$logger->write( 'attachment insert failed', [ 'url' => $url, 'error' => $attach_id->get_error_message() ] );
@@ -228,7 +228,7 @@ namespace WPLMS_S1I {
 				if ( $aid ) $stats['orphans_assignments']++;
 			}
 
-			update_option( \WPLMS_S1I_OPT_RUNSTATS, $stats, false );
+			\update_option( \WPLMS_S1I_OPT_RUNSTATS, $stats, false );
 			$this->logger->write( 'Import finished', $stats );
 			return $stats;
 		}
@@ -293,12 +293,12 @@ namespace WPLMS_S1I {
 				$this->logger->write( 'DRY: create course', [ 'title'=>$title ] );
 				return 0;
 			}
-			$new_id = wp_insert_post( $args, true );
-			if ( is_wp_error( $new_id ) ) {
+			$new_id = \wp_insert_post( $args, true );
+			if ( \is_wp_error( $new_id ) ) {
 				throw new \RuntimeException( 'wp_insert_post failed: ' . $new_id->get_error_message() );
 			}
 			// mark original id
-			update_post_meta( $new_id, '_wplms_old_id', $old_id );
+			\update_post_meta( $new_id, '_wplms_old_id', $old_id );
 			// featured image if present
 			sideload_featured( array_get( $course, 'featured_image', '' ), $new_id, $this->logger );
 			$this->idmap->set( 'courses', $old_id, $new_id );
@@ -327,17 +327,17 @@ namespace WPLMS_S1I {
 				$this->logger->write( 'DRY: create lesson', [ 'title'=>$title, 'course'=>$course_new_id ] );
 				return 0;
 			}
-			$new_id = wp_insert_post( $args, true );
-			if ( is_wp_error( $new_id ) ) {
+			$new_id = \wp_insert_post( $args, true );
+			if ( \is_wp_error( $new_id ) ) {
 				$this->logger->write( 'lesson insert failed: ' . $new_id->get_error_message(), [ 'old_id'=>$old_id ] );
 				return 0;
 			}
-			update_post_meta( $new_id, '_wplms_old_id', $old_id );
+			\update_post_meta( $new_id, '_wplms_old_id', $old_id );
 			if ( $course_new_id ) {
-				update_post_meta( $new_id, 'course_id', (int) $course_new_id ); // LD recognizes this
+				\update_post_meta( $new_id, 'course_id', (int) $course_new_id ); // LD recognizes this
 			}
 			if ( $is_orphan ) {
-				update_post_meta( $new_id, '_wplms_orphan', 1 );
+				\update_post_meta( $new_id, '_wplms_orphan', 1 );
 			}
 			// featured image if present
 			sideload_featured( array_get( $unit, 'featured_image', '' ), $new_id, $this->logger );
@@ -372,17 +372,17 @@ namespace WPLMS_S1I {
 				$this->logger->write( 'DRY: create quiz', [ 'title'=>$title, 'course'=>$course_new_id ] );
 				return 0;
 			}
-			$new_id = wp_insert_post( $args, true );
-			if ( is_wp_error( $new_id ) ) {
+			$new_id = \wp_insert_post( $args, true );
+			if ( \is_wp_error( $new_id ) ) {
 				$this->logger->write( 'quiz insert failed: ' . $new_id->get_error_message(), [ 'old_id'=>$old_id ] );
 				return 0;
 			}
-			update_post_meta( $new_id, '_wplms_old_id', $old_id );
+			\update_post_meta( $new_id, '_wplms_old_id', $old_id );
 			if ( $course_new_id ) {
-				update_post_meta( $new_id, 'course_id', (int) $course_new_id );
+				\update_post_meta( $new_id, 'course_id', (int) $course_new_id );
 			}
 			if ( $is_orphan ) {
-				update_post_meta( $new_id, '_wplms_orphan', 1 );
+				\update_post_meta( $new_id, '_wplms_orphan', 1 );
 			}
 			sideload_featured( array_get( $quiz, 'featured_image', '' ), $new_id, $this->logger );
 			$this->idmap->set( 'quizzes', $old_id, $new_id );
@@ -410,15 +410,15 @@ namespace WPLMS_S1I {
 				$this->logger->write( 'DRY: create assignment', [ 'title'=>$title, 'course'=>$course_new_id, 'lesson'=>$lesson_new_id ] );
 				return 0;
 			}
-			$new_id = wp_insert_post( $args, true );
-			if ( is_wp_error( $new_id ) ) {
+			$new_id = \wp_insert_post( $args, true );
+			if ( \is_wp_error( $new_id ) ) {
 				$this->logger->write( 'assignment insert failed: ' . $new_id->get_error_message(), [ 'old_id'=>$old_id ] );
 				return 0;
 			}
-			update_post_meta( $new_id, '_wplms_old_id', $old_id );
-			if ( $course_new_id ) update_post_meta( $new_id, 'course_id', (int) $course_new_id );
-			if ( $lesson_new_id ) update_post_meta( $new_id, 'lesson_id', (int) $lesson_new_id );
-			if ( $is_orphan ) update_post_meta( $new_id, '_wplms_orphan', 1 );
+			\update_post_meta( $new_id, '_wplms_old_id', $old_id );
+			if ( $course_new_id ) \update_post_meta( $new_id, 'course_id', (int) $course_new_id );
+			if ( $lesson_new_id ) \update_post_meta( $new_id, 'lesson_id', (int) $lesson_new_id );
+			if ( $is_orphan ) \update_post_meta( $new_id, '_wplms_orphan', 1 );
 			$this->idmap->set( 'assignments', $old_id, $new_id );
 			return $new_id;
 		}
@@ -443,26 +443,26 @@ namespace WPLMS_S1I {
 				$this->logger->write( 'DRY: create certificate', [ 'title'=>$title ] );
 				return 0;
 			}
-			$new_id = wp_insert_post( $args, true );
-			if ( is_wp_error( $new_id ) ) {
+			$new_id = \wp_insert_post( $args, true );
+			if ( \is_wp_error( $new_id ) ) {
 				$this->logger->write( 'certificate insert failed: ' . $new_id->get_error_message(), [ 'old_id'=>$old_id ] );
 				return 0;
 			}
-			update_post_meta( $new_id, '_wplms_old_id', $old_id );
+			\update_post_meta( $new_id, '_wplms_old_id', $old_id );
 			// featured & background images
 			sideload_featured( array_get( $cert, 'featured_image', '' ), $new_id, $this->logger );
 			$bg = array_get( $cert, 'background_image', '' );
-			if ( $bg ) update_post_meta( $new_id, '_ld_certificate_background_image_url', esc_url_raw( $bg ) );
+			if ( $bg ) \update_post_meta( $new_id, '_ld_certificate_background_image_url', \esc_url_raw( $bg ) );
 			$this->idmap->set( 'certificates', $old_id, $new_id );
 			return $new_id;
 		}
 
 		private function stash_enrollments( $course, $enrollments ) {
 			if ( empty( $enrollments ) ) return;
-			$pool = get_option( \WPLMS_S1I_OPT_ENROLL_POOL, [] );
+			$pool = \get_option( \WPLMS_S1I_OPT_ENROLL_POOL, [] );
 			$old_id = array_get( $course, 'id', null );
 			$pool[ (string) $old_id ] = $enrollments; // kept verbatim; will be resolved once users are mapped
-			update_option( \WPLMS_S1I_OPT_ENROLL_POOL, $pool, false );
+			\update_option( \WPLMS_S1I_OPT_ENROLL_POOL, $pool, false );
 			$this->logger->write( 'enrollments stashed', [ 'course_old_id'=>$old_id, 'count'=>count( (array) $enrollments ) ] );
 		}
 	}
@@ -472,13 +472,13 @@ namespace WPLMS_S1I {
 		private $page_slug = 'wplms-s1-importer';
 
 		public function hooks() {
-			add_action( 'admin_menu', [ $this, 'menu' ] );
-			add_action( 'admin_post_wplms_s1i_run', [ $this, 'handle_import' ] );
-			add_action( 'admin_post_wplms_s1i_reset', [ $this, 'handle_reset' ] );
+			\add_action( 'admin_menu', [ $this, 'menu' ] );
+			\add_action( 'admin_post_wplms_s1i_run', [ $this, 'handle_import' ] );
+			\add_action( 'admin_post_wplms_s1i_reset', [ $this, 'handle_reset' ] );
 		}
 
 		public function menu() {
-			add_submenu_page(
+			\add_submenu_page(
 				'tools.php',
 				'WPLMS S1 Importer',
 				'WPLMS S1 Importer',
@@ -489,18 +489,18 @@ namespace WPLMS_S1I {
 		}
 
 		public function render() {
-			if ( ! current_user_can( 'manage_options' ) ) return;
+			if ( ! \current_user_can( 'manage_options' ) ) return;
 			$idmap   = new IdMap();
-			$stats   = get_option( \WPLMS_S1I_OPT_RUNSTATS, [] );
-			$en_pool = get_option( \WPLMS_S1I_OPT_ENROLL_POOL, [] );
+			$stats   = \get_option( \WPLMS_S1I_OPT_RUNSTATS, [] );
+			$en_pool = \get_option( \WPLMS_S1I_OPT_ENROLL_POOL, [] );
 			?>
 			<div class="wrap">
 				<h1>WPLMS → LearnDash Importer (PoC)</h1>
-				<p>Version <?php echo esc_html( \WPLMS_S1I_VER ); ?>. Use this to import the JSON created by WPLMS S1 Exporter.</p>
+				<p>Version <?php echo \esc_html( \WPLMS_S1I_VER ); ?>. Use this to import the JSON created by WPLMS S1 Exporter.</p>
 
 				<h2 class="title">Run Import</h2>
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
-					<?php wp_nonce_field( 'wplms_s1i_run' ); ?>
+				<form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
+					<?php \wp_nonce_field( 'wplms_s1i_run' ); ?>
 					<input type="hidden" name="action" value="wplms_s1i_run" />
 					<table class="form-table" role="presentation">
 						<tr>
@@ -512,44 +512,44 @@ namespace WPLMS_S1I {
 							<td><label><input type="checkbox" name="dry" id="wplms_s1i_dry" value="1" /> Analyze only (no content will be created)</label></td>
 						</tr>
 					</table>
-					<?php submit_button( 'Start Import' ); ?>
+					<?php \submit_button( 'Start Import' ); ?>
 				</form>
 
 				<h2 class="title">Utilities</h2>
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-					<?php wp_nonce_field( 'wplms_s1i_reset' ); ?>
+				<form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>">
+					<?php \wp_nonce_field( 'wplms_s1i_reset' ); ?>
 					<input type="hidden" name="action" value="wplms_s1i_reset" />
-					<?php submit_button( 'Reset ID Map & Stats', 'delete' ); ?>
+					<?php \submit_button( 'Reset ID Map & Stats', 'delete' ); ?>
 				</form>
 
 				<h2 class="title">ID Map (summary)</h2>
-				<pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo esc_html( print_r( $idmap->get_all(), true ) ); ?></pre>
+				<pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo \esc_html( print_r( $idmap->get_all(), true ) ); ?></pre>
 
 				<h2 class="title">Last Run Stats</h2>
-				<pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo esc_html( print_r( $stats, true ) ); ?></pre>
+				<pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo \esc_html( print_r( $stats, true ) ); ?></pre>
 
 				<h2 class="title">Enrollments Pool (deferred)</h2>
 				<p>Stored per original course ID for later user mapping.</p>
-				<pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo esc_html( print_r( [ 'courses'=> count( $en_pool ) ], true ) ); ?></pre>
+				<pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo \esc_html( print_r( [ 'courses'=> count( $en_pool ) ], true ) ); ?></pre>
 
 			</div>
 			<?php
 		}
 
 		public function handle_import() {
-			if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
-			check_admin_referer( 'wplms_s1i_run' );
+			if ( ! \current_user_can( 'manage_options' ) ) \wp_die( 'Unauthorized' );
+			\check_admin_referer( 'wplms_s1i_run' );
 
 			$dry = isset( $_POST['dry'] ) && $_POST['dry'] == '1';
 
 			// handle upload
 			if ( empty( $_FILES['wplms_s1i_file'] ) || empty( $_FILES['wplms_s1i_file']['tmp_name'] ) ) {
-				wp_die( 'No file uploaded' );
+				\wp_die( 'No file uploaded' );
 			}
 			$overrides = [ 'test_form' => false ];
-			$uploaded = wp_handle_upload( $_FILES['wplms_s1i_file'], $overrides );
+			$uploaded = \wp_handle_upload( $_FILES['wplms_s1i_file'], $overrides );
 			if ( isset( $uploaded['error'] ) ) {
-				wp_die( 'Upload error: ' . esc_html( $uploaded['error'] ) );
+				\wp_die( 'Upload error: ' . \esc_html( $uploaded['error'] ) );
 			}
 
 			$logger   = new Logger();
@@ -559,22 +559,22 @@ namespace WPLMS_S1I {
 
 			try {
 				$stats = $importer->run( $uploaded['file'] );
-				$url   = add_query_arg( [ 'page'=>$this->page_slug, 'done'=>1, 'log'=>rawurlencode( $logger->path() ) ], admin_url( 'tools.php' ) );
-				wp_safe_redirect( $url );
+				$url   = \add_query_arg( [ 'page'=>$this->page_slug, 'done'=>1, 'log'=>rawurlencode( $logger->path() ) ], \admin_url( 'tools.php' ) );
+				\wp_safe_redirect( $url );
 				exit;
 			} catch ( \Throwable $e ) {
-				wp_die( 'Import failed: ' . esc_html( $e->getMessage() ) );
+				\wp_die( 'Import failed: ' . \esc_html( $e->getMessage() ) );
 			}
 		}
 
                 public function handle_reset() {
-                        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
-                        check_admin_referer( 'wplms_s1i_reset' );
+                        if ( ! \current_user_can( 'manage_options' ) ) \wp_die( 'Unauthorized' );
+                        \check_admin_referer( 'wplms_s1i_reset' );
                         $idmap = new IdMap();
                         $idmap->reset();
-                        delete_option( \WPLMS_S1I_OPT_RUNSTATS );
-                        delete_option( \WPLMS_S1I_OPT_ENROLL_POOL );
-                        wp_safe_redirect( add_query_arg( [ 'page'=>$this->page_slug, 'reset'=>1 ], admin_url( 'tools.php' ) ) );
+                        \delete_option( \WPLMS_S1I_OPT_RUNSTATS );
+                        \delete_option( \WPLMS_S1I_OPT_ENROLL_POOL );
+                        \wp_safe_redirect( \add_query_arg( [ 'page'=>$this->page_slug, 'reset'=>1 ], \admin_url( 'tools.php' ) ) );
                         exit;
                 }
         }
@@ -585,17 +585,17 @@ namespace WPLMS_S1I {
 // Bootstrap
 // -----------------------------------------------------------------------------
 namespace {
-        add_action( 'init', function () {
+        \add_action( 'init', function () {
                 // Ensure LearnDash CPTs exist (plugin can still create posts even if LD inactive, but recommended to activate LD first)
                 // Minimal guard: if post type absent, register a placeholder so posts can be created (PoC only).
                 $needed = [ 'sfwd-courses', 'sfwd-lessons', 'sfwd-quiz', 'sfwd-assignment', 'sfwd-certificates' ];
                 // Re-check after other plugins have registered their post types.
                 $missing = array_filter( $needed, function ( $pt ) {
-                        return ! post_type_exists( $pt );
+                        return ! \post_type_exists( $pt );
                 } );
                 if ( $missing ) {
                         foreach ( $missing as $pt ) {
-                                register_post_type( $pt, [
+                                \register_post_type( $pt, [
                                         'label' => strtoupper( $pt ),
                                         'public' => true,
                                         'show_ui' => true,
@@ -605,9 +605,9 @@ namespace {
                 }
         }, 20 );
 
-	add_action( 'init', function () {
+	\add_action( 'init', function () {
 		// Admin UI
-		if ( is_admin() ) {
+		if ( \is_admin() ) {
 			$admin = new \WPLMS_S1I\Admin();
 			$admin->hooks();
 		}
