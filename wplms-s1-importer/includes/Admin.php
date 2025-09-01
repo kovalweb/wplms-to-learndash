@@ -34,16 +34,16 @@ class Admin {
 				<form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
 					<?php \wp_nonce_field( 'wplms_s1i_run' ); ?>
 					<input type="hidden" name="action" value="wplms_s1i_run" />
-					<table class="form-table" role="presentation">
-						<tr>
-							<th scope="row"><label for="wplms_s1i_file">JSON or ZIP file</label></th>
-							<td><input type="file" name="wplms_s1i_file" id="wplms_s1i_file" accept=".json,.zip" required /></td>
-						</tr>
-						<tr>
-							<th scope="row"><label for="wplms_s1i_dry">Dry run</label></th>
-							<td><label><input type="checkbox" name="dry" id="wplms_s1i_dry" value="1" /> Analyze only (no content will be created)</label></td>
-						</tr>
-					</table>
+                                        <table class="form-table" role="presentation">
+                                                <tr>
+                                                        <th scope="row"><label for="wplms_s1i_file">JSON file only</label></th>
+                                                        <td><input type="file" name="wplms_s1i_file" id="wplms_s1i_file" accept=".json" required /></td>
+                                                </tr>
+                                                <tr>
+                                                        <th scope="row"><label for="wplms_s1i_dry">Dry run</label></th>
+                                                        <td><label><input type="checkbox" name="dry" id="wplms_s1i_dry" value="1" /> Analyze only (no content will be created)</label></td>
+                                                </tr>
+                                        </table>
 					<?php \submit_button( 'Start Import' ); ?>
 				</form>
 
@@ -74,29 +74,46 @@ class Admin {
 
 			$dry = isset( $_POST['dry'] ) && $_POST['dry'] == '1';
 
-			// handle upload
-			if ( empty( $_FILES['wplms_s1i_file'] ) || empty( $_FILES['wplms_s1i_file']['tmp_name'] ) ) {
-				\wp_die( 'No file uploaded' );
-			}
-			$overrides = [ 'test_form' => false ];
-			$uploaded = \wp_handle_upload( $_FILES['wplms_s1i_file'], $overrides );
-			if ( isset( $uploaded['error'] ) ) {
-				\wp_die( 'Upload error: ' . \esc_html( $uploaded['error'] ) );
-			}
+                        // handle upload
+                        if ( empty( $_FILES['wplms_s1i_file'] ) || empty( $_FILES['wplms_s1i_file']['tmp_name'] ) || empty( $_FILES['wplms_s1i_file']['size'] ) ) {
+                                \wp_die( 'No file uploaded or file is empty' );
+                        }
+                        $overrides = [
+                                'test_form' => false,
+                                'mimes'     => [ 'json' => 'application/json', 'json-alt' => 'text/plain' ],
+                        ];
+                        $uploaded = \wp_handle_upload( $_FILES['wplms_s1i_file'], $overrides );
+                        if ( isset( $uploaded['error'] ) ) {
+                                \wp_die( 'Upload error: ' . \esc_html( $uploaded['error'] ) );
+                        }
+                        $ft = \wp_check_filetype_and_ext( $uploaded['file'], $uploaded['file'], $overrides['mimes'] );
+                        if ( ! $ft['ext'] || ! \in_array( $ft['ext'], [ 'json', 'json-alt' ], true ) ) {
+                                @\unlink( $uploaded['file'] );
+                                \wp_die( 'Invalid file type. JSON required.' );
+                        }
+                        $raw = \file_get_contents( $uploaded['file'] );
+                        @\unlink( $uploaded['file'] );
+                        if ( false === $raw ) {
+                                \wp_die( 'Could not read uploaded file.' );
+                        }
+                        $data = \json_decode( $raw, true );
+                        if ( \json_last_error() !== JSON_ERROR_NONE ) {
+                                \wp_die( 'Invalid JSON: ' . \esc_html( \json_last_error_msg() ) );
+                        }
 
-			$logger   = new Logger();
-			$idmap    = new IdMap();
-			$importer = new Importer( $logger, $idmap );
-			$importer->set_dry_run( $dry );
+                        $logger   = new Logger();
+                        $idmap    = new IdMap();
+                        $importer = new Importer( $logger, $idmap );
+                        $importer->set_dry_run( $dry );
 
-			try {
-				$stats = $importer->run( $uploaded['file'] );
-				$url   = \add_query_arg( [ 'page'=>$this->page_slug, 'done'=>1, 'log'=>rawurlencode( $logger->path() ) ], \admin_url( 'tools.php' ) );
-				\wp_safe_redirect( $url );
-				exit;
-			} catch ( \Throwable $e ) {
-				\wp_die( 'Import failed: ' . \esc_html( $e->getMessage() ) );
-			}
+                        try {
+                                $stats = $importer->run( $data );
+                                $url   = \add_query_arg( [ 'page'=>$this->page_slug, 'done'=>1, 'log'=>rawurlencode( $logger->path() ) ], \admin_url( 'tools.php' ) );
+                                \wp_safe_redirect( $url );
+                                exit;
+                        } catch ( \Throwable $e ) {
+                                \wp_die( 'Import failed: ' . \esc_html( $e->getMessage() ) );
+                        }
 		}
 
                 public function handle_reset() {

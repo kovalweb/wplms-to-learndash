@@ -67,16 +67,16 @@ add_action( 'init', function () {
     }
 } );
 
-// Optional: WP‑CLI command for local usage: wp wplms-s1 import <path.json|zip> [--dry]
+// Optional: WP‑CLI command for local usage: wp wplms-s1 import <path.json> [--dry]
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
     \WP_CLI::add_command( 'wplms-s1', new class {
         /**
-         * Import from a JSON or ZIP exported by WPLMS S1 Exporter.
+         * Import from a JSON exported by WPLMS S1 Exporter.
          *
          * ## OPTIONS
          *
          * <path>
-         * : Absolute path to JSON or ZIP file.
+         * : Absolute path to JSON file.
          *
          * [--dry]
          * : Analyze only; do not create posts.
