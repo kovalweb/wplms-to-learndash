@@ -90,27 +90,42 @@ namespace WPLMS_S1I {
 	}
 
 	// ----------------------------- Helpers -------------------------------------
-	function array_get( $arr, $key, $default = '' ) {
-		return isset( $arr[ $key ] ) ? $arr[ $key ] : $default;
-	}
+        function array_get( $arr, $key, $default = '' ) {
+                if ( ! is_array( $arr ) ) return $default;
+                if ( false === strpos( $key, '.' ) ) {
+                        return isset( $arr[ $key ] ) ? $arr[ $key ] : $default;
+                }
+                $segments = explode( '.', $key );
+                foreach ( $segments as $segment ) {
+                        if ( ! is_array( $arr ) || ! array_key_exists( $segment, $arr ) ) {
+                                return $default;
+                        }
+                        $arr = $arr[ $segment ];
+                }
+                return $arr;
+        }
 
 	function normalize_slug( $slug ) {
 		$slug = \sanitize_title( $slug );
 		return $slug ?: null;
 	}
 
-	function ensure_oembed( $content, $embeds ) {
-		if ( empty( $embeds ) || ! is_array( $embeds ) ) return $content;
-		$lines = [];
-		foreach ( $embeds as $url ) {
-			$url = trim( (string) $url );
-			if ( $url ) $lines[] = $url; // Let WP auto‑oEmbed handle it
-		}
-		if ( $lines ) {
-			$content .= "\n\n<!-- WPLMS S1 embeds -->\n" . implode( "\n", $lines ) . "\n";
-		}
-		return $content;
-	}
+        function ensure_oembed( $content, $embeds ) {
+                if ( empty( $embeds ) || ! is_array( $embeds ) ) return $content;
+                $lines = [];
+                foreach ( $embeds as $item ) {
+                        if ( is_array( $item ) ) {
+                                $url = trim( (string) array_get( $item, 'src', '' ) );
+                        } else {
+                                $url = trim( (string) $item );
+                        }
+                        if ( $url ) $lines[] = $url; // Let WP auto‑oEmbed handle it
+                }
+                if ( $lines ) {
+                        $content .= "\n\n<!-- WPLMS S1 embeds -->\n" . implode( "\n", $lines ) . "\n";
+                }
+                return $content;
+        }
 
 	function sideload_featured( $url, $attach_to_post_id, Logger $logger ) {
 		if ( ! $url ) return 0;
@@ -272,17 +287,17 @@ namespace WPLMS_S1I {
 			throw new \RuntimeException( 'Unsupported file type: ' . $ext );
 		}
 
-		private function import_course( $course ) {
-			$old_id   = (int) array_get( $course, 'id', 0 );
+                private function import_course( $course ) {
+                        $old_id   = (int) array_get( $course, 'old_id', 0 );
 			$existing = $this->idmap->get( 'courses', $old_id );
 			if ( $existing ) {
 				$this->logger->write( 'course already imported', [ 'old_id'=>$old_id, 'new_id'=>$existing ] );
 				return $existing;
 			}
-			$title    = array_get( $course, 'title', 'Untitled Course' );
-			$content  = array_get( $course, 'content', '' );
-			$content  = ensure_oembed( $content, array_get( $course, 'embeds', [] ) );
-			$slug     = normalize_slug( array_get( $course, 'post_name', '' ) );
+                        $title    = array_get( $course, 'post.post_title', 'Untitled Course' );
+                        $content  = array_get( $course, 'post.post_content', '' );
+                        $content  = ensure_oembed( $content, array_get( $course, 'embeds', [] ) );
+                        $slug     = normalize_slug( array_get( $course, 'post.post_name', '' ) );
 			$args = [
 				'post_type'    => 'sfwd-courses',
 				'post_status'  => 'publish',
@@ -302,19 +317,19 @@ namespace WPLMS_S1I {
 			// mark original id
 			\update_post_meta( $new_id, '_wplms_old_id', $old_id );
 			// featured image if present
-			sideload_featured( array_get( $course, 'featured_image', '' ), $new_id, $this->logger );
+                        sideload_featured( array_get( $course, 'post.featured_image', '' ), $new_id, $this->logger );
 			$this->idmap->set( 'courses', $old_id, $new_id );
 			return $new_id;
 		}
 
-		private function import_lesson( $unit, $course_new_id = 0, $menu_order = 0, $is_orphan = false ) {
-			$old_id   = (int) array_get( $unit, 'id', 0 );
+                private function import_lesson( $unit, $course_new_id = 0, $menu_order = 0, $is_orphan = false ) {
+                        $old_id   = (int) array_get( $unit, 'old_id', 0 );
 			$existing = $this->idmap->get( 'units', $old_id );
 			if ( $existing ) return $existing;
 
-			$title   = array_get( $unit, 'title', 'Untitled Lesson' );
-			$content = ensure_oembed( array_get( $unit, 'content', '' ), array_get( $unit, 'embeds', [] ) );
-			$slug    = normalize_slug( array_get( $unit, 'post_name', '' ) );
+                        $title   = array_get( $unit, 'post.post_title', 'Untitled Lesson' );
+                        $content = ensure_oembed( array_get( $unit, 'post.post_content', '' ), array_get( $unit, 'embeds', [] ) );
+                        $slug    = normalize_slug( array_get( $unit, 'post.post_name', '' ) );
 			$args = [
 				'post_type'    => 'sfwd-lessons',
 				'post_status'  => 'publish',
@@ -342,7 +357,7 @@ namespace WPLMS_S1I {
 				\update_post_meta( $new_id, '_wplms_orphan', 1 );
 			}
 			// featured image if present
-			sideload_featured( array_get( $unit, 'featured_image', '' ), $new_id, $this->logger );
+                        sideload_featured( array_get( $unit, 'post.featured_image', '' ), $new_id, $this->logger );
 			$this->idmap->set( 'units', $old_id, $new_id );
 
 			// assignments nested under unit?
@@ -353,14 +368,14 @@ namespace WPLMS_S1I {
 			return $new_id;
 		}
 
-		private function import_quiz( $quiz, $course_new_id = 0, $is_orphan = false ) {
-			$old_id   = (int) array_get( $quiz, 'id', 0 );
+                private function import_quiz( $quiz, $course_new_id = 0, $is_orphan = false ) {
+                        $old_id   = (int) array_get( $quiz, 'old_id', 0 );
 			$existing = $this->idmap->get( 'quizzes', $old_id );
 			if ( $existing ) return $existing;
 
-			$title   = array_get( $quiz, 'title', 'Untitled Quiz' );
-			$content = ensure_oembed( array_get( $quiz, 'content', '' ), array_get( $quiz, 'embeds', [] ) );
-			$slug    = normalize_slug( array_get( $quiz, 'post_name', '' ) );
+                        $title   = array_get( $quiz, 'post.post_title', 'Untitled Quiz' );
+                        $content = ensure_oembed( array_get( $quiz, 'post.post_content', '' ), array_get( $quiz, 'embeds', [] ) );
+                        $slug    = normalize_slug( array_get( $quiz, 'post.post_name', '' ) );
 			$args = [
 				'post_type'    => 'sfwd-quiz',
 				'post_status'  => 'publish',
@@ -386,19 +401,19 @@ namespace WPLMS_S1I {
 			if ( $is_orphan ) {
 				\update_post_meta( $new_id, '_wplms_orphan', 1 );
 			}
-			sideload_featured( array_get( $quiz, 'featured_image', '' ), $new_id, $this->logger );
+                        sideload_featured( array_get( $quiz, 'post.featured_image', '' ), $new_id, $this->logger );
 			$this->idmap->set( 'quizzes', $old_id, $new_id );
 			return $new_id;
 		}
 
-		private function import_assignment( $assn, $course_new_id = 0, $lesson_new_id = 0, $is_orphan = false ) {
-			$old_id   = (int) array_get( $assn, 'id', 0 );
+                private function import_assignment( $assn, $course_new_id = 0, $lesson_new_id = 0, $is_orphan = false ) {
+                        $old_id   = (int) array_get( $assn, 'old_id', 0 );
 			$existing = $this->idmap->get( 'assignments', $old_id );
 			if ( $existing ) return $existing;
 
-			$title   = array_get( $assn, 'title', 'Assignment' );
-			$content = ensure_oembed( array_get( $assn, 'content', '' ), array_get( $assn, 'embeds', [] ) );
-			$slug    = normalize_slug( array_get( $assn, 'post_name', '' ) );
+                        $title   = array_get( $assn, 'post.post_title', 'Assignment' );
+                        $content = ensure_oembed( array_get( $assn, 'post.post_content', '' ), array_get( $assn, 'embeds', [] ) );
+                        $slug    = normalize_slug( array_get( $assn, 'post.post_name', '' ) );
 			$args = [
 				'post_type'    => 'sfwd-assignment',
 				'post_status'  => 'publish',
@@ -425,14 +440,14 @@ namespace WPLMS_S1I {
 			return $new_id;
 		}
 
-		private function import_certificate( $cert ) {
-			$old_id   = (int) array_get( $cert, 'id', 0 );
+                private function import_certificate( $cert ) {
+                        $old_id   = (int) array_get( $cert, 'old_id', 0 );
 			$existing = $this->idmap->get( 'certificates', $old_id );
 			if ( $existing ) return $existing;
 
-			$title   = array_get( $cert, 'title', 'Certificate' );
-			$content = array_get( $cert, 'content', '' );
-			$slug    = normalize_slug( array_get( $cert, 'post_name', '' ) );
+                        $title   = array_get( $cert, 'post.post_title', 'Certificate' );
+                        $content = array_get( $cert, 'post.post_content', '' );
+                        $slug    = normalize_slug( array_get( $cert, 'post.post_name', '' ) );
 			$args = [
 				'post_type'    => 'sfwd-certificates',
 				'post_status'  => 'publish',
@@ -452,7 +467,7 @@ namespace WPLMS_S1I {
 			}
 			\update_post_meta( $new_id, '_wplms_old_id', $old_id );
 			// featured & background images
-			sideload_featured( array_get( $cert, 'featured_image', '' ), $new_id, $this->logger );
+                        sideload_featured( array_get( $cert, 'post.featured_image', '' ), $new_id, $this->logger );
 			$bg = array_get( $cert, 'background_image', '' );
 			if ( $bg ) \update_post_meta( $new_id, '_ld_certificate_background_image_url', \esc_url_raw( $bg ) );
 			$this->idmap->set( 'certificates', $old_id, $new_id );
@@ -465,7 +480,7 @@ namespace WPLMS_S1I {
                         }
                         if ( empty( $enrollments ) ) return;
                         $pool = \get_option( \WPLMS_S1I_OPT_ENROLL_POOL, [] );
-                        $old_id = array_get( $course, 'id', null );
+                        $old_id = array_get( $course, 'old_id', null );
                         $pool[ (string) $old_id ] = $enrollments; // kept verbatim; will be resolved once users are mapped
                         \update_option( \WPLMS_S1I_OPT_ENROLL_POOL, $pool, false );
                         $this->logger->write( 'enrollments stashed', [ 'course_old_id'=>$old_id, 'count'=>count( (array) $enrollments ) ] );
