@@ -228,7 +228,9 @@ namespace WPLMS_S1I {
 				if ( $aid ) $stats['orphans_assignments']++;
 			}
 
-			\update_option( \WPLMS_S1I_OPT_RUNSTATS, $stats, false );
+                        if ( ! $this->dry_run ) {
+                                \update_option( \WPLMS_S1I_OPT_RUNSTATS, $stats, false );
+                        }
 			$this->logger->write( 'Import finished', $stats );
 			return $stats;
 		}
@@ -457,14 +459,17 @@ namespace WPLMS_S1I {
 			return $new_id;
 		}
 
-		private function stash_enrollments( $course, $enrollments ) {
-			if ( empty( $enrollments ) ) return;
-			$pool = \get_option( \WPLMS_S1I_OPT_ENROLL_POOL, [] );
-			$old_id = array_get( $course, 'id', null );
-			$pool[ (string) $old_id ] = $enrollments; // kept verbatim; will be resolved once users are mapped
-			\update_option( \WPLMS_S1I_OPT_ENROLL_POOL, $pool, false );
-			$this->logger->write( 'enrollments stashed', [ 'course_old_id'=>$old_id, 'count'=>count( (array) $enrollments ) ] );
-		}
+                private function stash_enrollments( $course, $enrollments ) {
+                        if ( $this->dry_run ) {
+                                return;
+                        }
+                        if ( empty( $enrollments ) ) return;
+                        $pool = \get_option( \WPLMS_S1I_OPT_ENROLL_POOL, [] );
+                        $old_id = array_get( $course, 'id', null );
+                        $pool[ (string) $old_id ] = $enrollments; // kept verbatim; will be resolved once users are mapped
+                        \update_option( \WPLMS_S1I_OPT_ENROLL_POOL, $pool, false );
+                        $this->logger->write( 'enrollments stashed', [ 'course_old_id'=>$old_id, 'count'=>count( (array) $enrollments ) ] );
+                }
 	}
 
 	// ------------------------------ Admin UI -----------------------------------
