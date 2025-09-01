@@ -7,30 +7,32 @@
  * License: GPLv2 or later
  */
 
-if ( ! defined( 'ABSPATH' ) ) {
-	exit;
-}
+namespace {
+        if ( ! defined( 'ABSPATH' ) ) {
+                exit;
+        }
 
-// -----------------------------------------------------------------------------
-// Constants
-// -----------------------------------------------------------------------------
-if ( ! defined( 'WPLMS_S1I_VER' ) ) {
-	define( 'WPLMS_S1I_VER', '1.0.0' );
-}
-if ( ! defined( 'WPLMS_S1I_FILE' ) ) {
-	define( 'WPLMS_S1I_FILE', __FILE__ );
-}
-if ( ! defined( 'WPLMS_S1I_DIR' ) ) {
-	define( 'WPLMS_S1I_DIR', plugin_dir_path( __FILE__ ) );
-}
-if ( ! defined( 'WPLMS_S1I_URL' ) ) {
-	define( 'WPLMS_S1I_URL', plugin_dir_url( __FILE__ ) );
-}
+        // -----------------------------------------------------------------------------
+        // Constants
+        // -----------------------------------------------------------------------------
+        if ( ! defined( 'WPLMS_S1I_VER' ) ) {
+                define( 'WPLMS_S1I_VER', '1.0.0' );
+        }
+        if ( ! defined( 'WPLMS_S1I_FILE' ) ) {
+                define( 'WPLMS_S1I_FILE', __FILE__ );
+        }
+        if ( ! defined( 'WPLMS_S1I_DIR' ) ) {
+                define( 'WPLMS_S1I_DIR', plugin_dir_path( __FILE__ ) );
+        }
+        if ( ! defined( 'WPLMS_S1I_URL' ) ) {
+                define( 'WPLMS_S1I_URL', plugin_dir_url( __FILE__ ) );
+        }
 
-// Options keys
-const WPLMS_S1I_OPT_IDMAP       = 'wplms_s1i_idmap';
-const WPLMS_S1I_OPT_RUNSTATS    = 'wplms_s1i_runstats';
-const WPLMS_S1I_OPT_ENROLL_POOL = 'wplms_s1i_enrollments_pool';
+        // Options keys
+        const WPLMS_S1I_OPT_IDMAP       = 'wplms_s1i_idmap';
+        const WPLMS_S1I_OPT_RUNSTATS    = 'wplms_s1i_runstats';
+        const WPLMS_S1I_OPT_ENROLL_POOL = 'wplms_s1i_enrollments_pool';
+}
 
 // -----------------------------------------------------------------------------
 // Actual class implementations (kept in this file for PoC packaging convenience)
@@ -565,17 +567,18 @@ namespace WPLMS_S1I {
 			}
 		}
 
-		public function handle_reset() {
-			if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
-			check_admin_referer( 'wplms_s1i_reset' );
-			$idmap = new IdMap();
-			$idmap->reset();
-			delete_option( \WPLMS_S1I_OPT_RUNSTATS );
-			delete_option( \WPLMS_S1I_OPT_ENROLL_POOL );
-			wp_safe_redirect( add_query_arg( [ 'page'=>$this->page_slug, 'reset'=>1 ], admin_url( 'tools.php' ) ) );
-			exit;
-		}
-	}
+                public function handle_reset() {
+                        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+                        check_admin_referer( 'wplms_s1i_reset' );
+                        $idmap = new IdMap();
+                        $idmap->reset();
+                        delete_option( \WPLMS_S1I_OPT_RUNSTATS );
+                        delete_option( \WPLMS_S1I_OPT_ENROLL_POOL );
+                        wp_safe_redirect( add_query_arg( [ 'page'=>$this->page_slug, 'reset'=>1 ], admin_url( 'tools.php' ) ) );
+                        exit;
+                }
+        }
+
 }
 
 // -----------------------------------------------------------------------------
