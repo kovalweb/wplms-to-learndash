@@ -585,21 +585,25 @@ namespace WPLMS_S1I {
 // Bootstrap
 // -----------------------------------------------------------------------------
 namespace {
-	add_action( 'plugins_loaded', function () {
-		// Ensure LearnDash CPTs exist (plugin can still create posts even if LD inactive, but recommended to activate LD first)
-		// Minimal guard: if post type absent, register a placeholder so posts can be created (PoC only).
-		$needed = [ 'sfwd-courses', 'sfwd-lessons', 'sfwd-quiz', 'sfwd-assignment', 'sfwd-certificates' ];
-		foreach ( $needed as $pt ) {
-			if ( ! post_type_exists( $pt ) ) {
-				register_post_type( $pt, [
-					'label' => strtoupper( $pt ),
-					'public' => true,
-					'show_ui' => true,
-					'supports' => [ 'title','editor','thumbnail','page-attributes' ],
-				] );
-			}
-		}
-	} );
+        add_action( 'init', function () {
+                // Ensure LearnDash CPTs exist (plugin can still create posts even if LD inactive, but recommended to activate LD first)
+                // Minimal guard: if post type absent, register a placeholder so posts can be created (PoC only).
+                $needed = [ 'sfwd-courses', 'sfwd-lessons', 'sfwd-quiz', 'sfwd-assignment', 'sfwd-certificates' ];
+                // Re-check after other plugins have registered their post types.
+                $missing = array_filter( $needed, function ( $pt ) {
+                        return ! post_type_exists( $pt );
+                } );
+                if ( $missing ) {
+                        foreach ( $missing as $pt ) {
+                                register_post_type( $pt, [
+                                        'label' => strtoupper( $pt ),
+                                        'public' => true,
+                                        'show_ui' => true,
+                                        'supports' => [ 'title','editor','thumbnail','page-attributes' ],
+                                ] );
+                        }
+                }
+        }, 20 );
 
 	add_action( 'init', function () {
 		// Admin UI
