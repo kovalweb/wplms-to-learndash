@@ -74,32 +74,34 @@ class Admin {
 
 			$dry = isset( $_POST['dry'] ) && $_POST['dry'] == '1';
 
-                        // handle upload
-                        if ( empty( $_FILES['wplms_s1i_file'] ) || empty( $_FILES['wplms_s1i_file']['tmp_name'] ) || empty( $_FILES['wplms_s1i_file']['size'] ) ) {
-                                \wp_die( 'No file uploaded or file is empty' );
-                        }
-                        $overrides = [
-                                'test_form' => false,
-                                'mimes'     => [ 'json' => 'application/json', 'json-alt' => 'text/plain' ],
-                        ];
-                        $uploaded = \wp_handle_upload( $_FILES['wplms_s1i_file'], $overrides );
-                        if ( isset( $uploaded['error'] ) ) {
-                                \wp_die( 'Upload error: ' . \esc_html( $uploaded['error'] ) );
-                        }
-                        $ft = \wp_check_filetype_and_ext( $uploaded['file'], $uploaded['file'], $overrides['mimes'] );
-                        if ( ! $ft['ext'] || ! \in_array( $ft['ext'], [ 'json', 'json-alt' ], true ) ) {
-                                @\unlink( $uploaded['file'] );
-                                \wp_die( 'Invalid file type. JSON required.' );
-                        }
-                        $raw = \file_get_contents( $uploaded['file'] );
-                        @\unlink( $uploaded['file'] );
-                        if ( false === $raw ) {
-                                \wp_die( 'Could not read uploaded file.' );
-                        }
-                        $data = \json_decode( $raw, true );
-                        if ( \json_last_error() !== JSON_ERROR_NONE ) {
-                                \wp_die( 'Invalid JSON: ' . \esc_html( \json_last_error_msg() ) );
-                        }
+			// handle upload
+			if ( empty( $_FILES['wplms_s1i_file'] ) || empty( $_FILES['wplms_s1i_file']['tmp_name'] ) || empty( $_FILES['wplms_s1i_file']['size'] ) ) {
+				\wp_die( 'No file uploaded or file is empty' );
+			}
+			if ( ! \is_uploaded_file( $_FILES['wplms_s1i_file']['tmp_name'] ) ) {
+				\wp_die( 'Upload error: not a valid uploaded file.' );
+			}
+			
+			$name = (string) $_FILES['wplms_s1i_file']['name'];
+			$ext  = strtolower( pathinfo( $name, PATHINFO_EXTENSION ) );
+			if ( 'json' !== $ext ) {
+				\wp_die( 'Invalid file type. JSON required.' );
+			}
+			
+			$size = (int) $_FILES['wplms_s1i_file']['size'];
+			if ( $size > 50 * 1024 * 1024 ) {
+				\wp_die( 'File too large. Maximum size is 50MB.' );
+			}
+			
+			$raw = \file_get_contents( $_FILES['wplms_s1i_file']['tmp_name'] );
+			if ( false === $raw || '' === trim( $raw ) ) {
+				\wp_die( 'Uploaded file is empty or unreadable.' );
+			}
+			
+			$data = \json_decode( $raw, true );
+			if ( \json_last_error() !== JSON_ERROR_NONE ) {
+				\wp_die( 'Invalid JSON: ' . \esc_html( \json_last_error_msg() ) );
+			}
 
                         $logger   = new Logger();
                         $idmap    = new IdMap();
