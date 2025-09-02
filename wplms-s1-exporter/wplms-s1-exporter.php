@@ -227,6 +227,13 @@ class WPLMS_S1_Exporter {
     private function export_single_course($course, $include_enrollments, $include_raw_meta, &$discovery, &$warnings, $unit_to_courses) {
         $raw_meta = get_post_meta($course->ID);
         list($vibe, $vibe_extra, $third_party) = $this->bucketize_meta($raw_meta);
+
+        $dur = $this->extract_duration_pair_from_meta($vibe, array('vibe_course_duration_parameter', 'vibe_duration_parameter'));
+        if ($dur) {
+            $vibe['duration']      = $dur['duration'];
+            $vibe['duration_unit'] = $dur['duration_unit'];
+        }
+
         $access_type = $this->detect_access_type($vibe, $vibe_extra);
 
         $price = null;
@@ -280,6 +287,17 @@ class WPLMS_S1_Exporter {
             ));
             foreach ($unit_posts as $u) {
                 $embeds = $this->extract_embeds_from_content( (string)$u->post_content );
+                $raw    = get_post_meta($u->ID);
+                $dur    = $this->extract_duration_pair_from_meta($raw, array('vibe_unit_duration_parameter', 'vibe_duration_parameter'));
+                $meta   = array();
+                if ($dur) {
+                    $meta['duration']      = $dur['duration'];
+                    $meta['duration_unit'] = $dur['duration_unit'];
+                }
+                if ($include_raw_meta) {
+                    $meta['raw'] = $raw;
+                }
+                if (empty($meta)) $meta = (object) array();
                 $units[] = array(
                     'old_id' => (int)$u->ID,
                     'post'   => array(
@@ -290,7 +308,7 @@ class WPLMS_S1_Exporter {
                         'status'       => $u->post_status,
                     ),
                     'embeds' => $embeds,
-                    'meta'   => $include_raw_meta ? array( 'raw' => get_post_meta($u->ID) ) : (object) array(),
+                    'meta'   => $meta,
                 );
             }
         }
@@ -770,6 +788,40 @@ class WPLMS_S1_Exporter {
             }
         }
         return array($vibe, $vibe_extra, $third_party);
+    }
+
+    private function extract_duration_pair_from_meta(array $meta, array $param_keys) {
+        if (!isset($meta['vibe_duration'])) return null;
+        $dur = $meta['vibe_duration'];
+        if (is_array($dur)) $dur = reset($dur);
+        if (!is_numeric($dur)) return null;
+
+        $param = null;
+        foreach ($param_keys as $k) {
+            if (isset($meta[$k])) {
+                $param = $meta[$k];
+                if (is_array($param)) $param = reset($param);
+                if (is_numeric($param)) { $param = (int)$param; break; }
+            }
+        }
+        if (!is_numeric($param)) return null;
+
+        return array(
+            'duration'      => (int)$dur,
+            'duration_unit' => $this->map_duration_unit((int)$param),
+        );
+    }
+
+    private function map_duration_unit($seconds) {
+        switch ((int)$seconds) {
+            case 31536000: return 'years';
+            case 2592000:  return 'months';
+            case 604800:   return 'weeks';
+            case 86400:    return 'days';
+            case 3600:     return 'hours';
+            case 60:       return 'minutes';
+            default:       return 'seconds';
+        }
     }
 
     private function is_meta_flag_on( $arr, $key ) {
