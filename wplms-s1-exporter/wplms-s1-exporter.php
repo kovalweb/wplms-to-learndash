@@ -229,6 +229,18 @@ class WPLMS_S1_Exporter {
         list($vibe, $vibe_extra, $third_party) = $this->bucketize_meta($raw_meta);
         $access_type = $this->detect_access_type($vibe, $vibe_extra);
 
+        $price = null;
+        $sale_price = null;
+        if ( ! empty($vibe['vibe_product']) ) {
+            $product_id = is_array($vibe['vibe_product']) ? intval(reset($vibe['vibe_product'])) : intval($vibe['vibe_product']);
+            if ( $product_id ) {
+                $regular = get_post_meta($product_id, '_regular_price', true);
+                if ( is_numeric($regular) ) $price = (float) $regular;
+                $sale = get_post_meta($product_id, '_sale_price', true);
+                if ( is_numeric($sale) ) $sale_price = (float) $sale;
+            }
+        }
+
         $thumb_id = get_post_thumbnail_id($course->ID);
         $featured = $thumb_id ? $this->get_attachment_payload($thumb_id) : null;
 
@@ -394,6 +406,8 @@ class WPLMS_S1_Exporter {
                 'access_type' => $access_type,
                 'vibe'        => $vibe,
                 'vibe_extra'  => $vibe_extra,
+                'price'       => $price,
+                'sale_price'  => $sale_price,
                 'misc'        => array( 'third_party' => $third_party ),
             ),
             'curriculum'     => $curriculum,
