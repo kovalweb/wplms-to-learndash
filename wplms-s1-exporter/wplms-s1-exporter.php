@@ -227,6 +227,7 @@ class WPLMS_S1_Exporter {
     private function export_single_course($course, $include_enrollments, $include_raw_meta, &$discovery, &$warnings, $unit_to_courses) {
         $raw_meta = get_post_meta($course->ID);
         list($vibe, $vibe_extra, $third_party) = $this->bucketize_meta($raw_meta);
+        $access_type = $this->detect_access_type($vibe, $vibe_extra);
 
         $thumb_id = get_post_thumbnail_id($course->ID);
         $featured = $thumb_id ? $this->get_attachment_payload($thumb_id) : null;
@@ -390,6 +391,7 @@ class WPLMS_S1_Exporter {
                 'featured_image' => $featured,
             ),
             'meta' => array(
+                'access_type' => $access_type,
                 'vibe'        => $vibe,
                 'vibe_extra'  => $vibe_extra,
                 'misc'        => array( 'third_party' => $third_party ),
@@ -730,6 +732,35 @@ class WPLMS_S1_Exporter {
             }
         }
         return array($vibe, $vibe_extra, $third_party);
+    }
+
+    private function is_meta_flag_on( $arr, $key ) {
+        if ( !isset($arr[$key]) ) return false;
+        $val = $arr[$key];
+        if ( is_array($val) ) $val = reset($val);
+        if ( is_bool($val) ) return $val;
+        $val = strtolower((string)$val);
+        return in_array($val, array('1','true','yes','on','s'), true);
+    }
+
+    private function detect_access_type( $vibe, $vibe_extra ) {
+        if ( $this->is_meta_flag_on($vibe, 'vibe_course_free') ) {
+            return 'free';
+        }
+        if ( !empty($vibe['vibe_product']) ) {
+            return 'paid';
+        }
+        if (
+            $this->is_meta_flag_on($vibe_extra, 'vibe_subscription') ||
+            $this->is_meta_flag_on($vibe_extra, 'vibe_subscription1') ||
+            $this->is_meta_flag_on($vibe_extra, 'vibe_mycred_subscription')
+        ) {
+            return 'subscribe';
+        }
+        if ( $this->is_meta_flag_on($vibe, 'vibe_course_apply') ) {
+            return 'closed';
+        }
+        return 'free';
     }
 
     private function extract_enrollments_from_numeric_meta( $raw ) {
