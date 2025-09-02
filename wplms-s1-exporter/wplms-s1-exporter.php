@@ -231,6 +231,9 @@ class WPLMS_S1_Exporter {
 
         $price = null;
         $sale_price = null;
+        $subscription_price = null;
+        $subscription_interval = null;
+        $subscription_unit = null;
         if ( ! empty($vibe['vibe_product']) ) {
             $product_id = is_array($vibe['vibe_product']) ? intval(reset($vibe['vibe_product'])) : intval($vibe['vibe_product']);
             if ( $product_id ) {
@@ -238,6 +241,24 @@ class WPLMS_S1_Exporter {
                 if ( is_numeric($regular) ) $price = (float) $regular;
                 $sale = get_post_meta($product_id, '_sale_price', true);
                 if ( is_numeric($sale) ) $sale_price = (float) $sale;
+
+                if ( function_exists('wc_get_product') ) {
+                    $wc_product = wc_get_product($product_id);
+                    if ( $wc_product && method_exists($wc_product, 'is_type') && $wc_product->is_type('subscription') ) {
+                        $sub_price = get_post_meta($product_id, '_subscription_price', true);
+                        if ( is_numeric($sub_price) ) {
+                            $currency = function_exists('get_woocommerce_currency') ? get_woocommerce_currency() : get_option('woocommerce_currency');
+                            $subscription_price = array(
+                                'amount'   => (float) $sub_price,
+                                'currency' => $currency,
+                            );
+                        }
+                        $sub_interval = get_post_meta($product_id, '_subscription_period_interval', true);
+                        if ( is_numeric($sub_interval) ) $subscription_interval = (int) $sub_interval;
+                        $sub_unit = get_post_meta($product_id, '_subscription_period', true);
+                        if ( ! empty($sub_unit) ) $subscription_unit = $sub_unit;
+                    }
+                }
             }
         }
 
@@ -406,9 +427,12 @@ class WPLMS_S1_Exporter {
                 'access_type' => $access_type,
                 'vibe'        => $vibe,
                 'vibe_extra'  => $vibe_extra,
-                'price'       => $price,
-                'sale_price'  => $sale_price,
-                'misc'        => array( 'third_party' => $third_party ),
+                'price'                => $price,
+                'sale_price'           => $sale_price,
+                'subscription_price'   => $subscription_price,
+                'subscription_interval'=> $subscription_interval,
+                'subscription_unit'    => $subscription_unit,
+                'misc'                 => array( 'third_party' => $third_party ),
             ),
             'curriculum'     => $curriculum,
             'curriculum_raw' => $curriculum_raw,
