@@ -131,7 +131,7 @@ class WPLMS_S1_Exporter {
             'export_meta' => array(
                 'source'       => 'WPLMS',
                 'exported_at'  => current_time('c'),
-                'version'      => '1.2.0',
+                'version'      => '1.3.0',
                 'scope'        => !empty($ids) ? 'selected' : 'all',
                 'selected_ids' => $ids,
                 'limit'        => $limit,
