@@ -306,8 +306,13 @@ class Importer {
                 $this->logger->write( 'featured sideload exception (certificate)', [ 'error' => $t->getMessage() ] );
             }
 
-            $bg = array_get( $cert, 'background_image', array_get( $cert, 'post.background_image', '' ) );
-            if ( $bg ) \update_post_meta( $new_id, '_ld_certificate_background_image_url', \esc_url_raw( $bg ) );
+            $bg_raw = array_get( $cert, 'background_image', array_get( $cert, 'post.background_image', '' ) );
+            $bg_url = extract_url( $bg_raw );
+            if ( $bg_url !== '' ) {
+                \update_post_meta( $new_id, '_ld_certificate_background_image_url', \esc_url_raw( $bg_url ) );
+            } else {
+                $this->logger->write( 'certificate background skipped: empty URL' );
+            }
 
             $this->idmap->set( 'certificates', $old_id, $new_id );
         }

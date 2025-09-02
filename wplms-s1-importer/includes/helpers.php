@@ -39,6 +39,20 @@ function ensure_oembed( $content, $embeds ) {
 }
 
 /**
+ * Повертає URL-рядок з довільного значення (рядок або масив зі стандартними ключами).
+ */
+function extract_url( $value ) {
+    if ( is_array( $value ) ) {
+        $u = array_get( $value, 'url', '' );
+        if ( ! $u ) $u = array_get( $value, 'source_url', '' );
+        if ( ! $u ) $u = array_get( $value, 'guid', '' );
+        if ( ! $u ) $u = array_get( $value, 'src', '' );
+        return is_string( $u ) ? trim( $u ) : '';
+    }
+    return is_string( $value ) ? trim( $value ) : '';
+}
+
+/**
  * Sideload featured image.
  * $image може бути рядком URL або масивом (url/source_url/guid/src).
  * На помилках не кидаємо фатал — пишемо в лог і повертаємо 0.
