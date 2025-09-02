@@ -28,7 +28,7 @@ if ( ! defined( 'WPLMS_S1I_URL' ) ) {
 }
 
 // Options keys
-const WPLMS_S1I_OPT_IDMAP       = 'wplms_s1i_idmap';
+const WPLMS_S1I_OPT_IDMAP       = 'wplms_s1_map';
 const WPLMS_S1I_OPT_RUNSTATS    = 'wplms_s1i_runstats';
 const WPLMS_S1I_OPT_ENROLL_POOL = 'wplms_s1i_enrollments_pool';
 
