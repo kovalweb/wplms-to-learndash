@@ -146,11 +146,25 @@ class WPLMS_S1_Exporter {
             'orphans' => array( 'units'=>array(), 'assignments'=>array(), 'quizzes'=>array() ),
         );
 
+        $analysis = array(
+            'paid_without_price'    => array(),
+            'with_cta'              => array(),
+            'courses_without_duration' => array(),
+            'lessons_without_duration' => array(),
+            'stats' => array(
+                'total_courses'     => count($courses),
+                'access_type'       => array(),
+                'access_type_final' => array(),
+                'statuses'          => array(),
+                'subscriptions'     => 0,
+            ),
+        );
+
         $used_units = array();
         $used_assignments = array();
 
         foreach ( $courses as $course ) {
-            $one = $this->export_single_course($course, $include_enrollments, !$exclude_raw_meta, $discovery, $warnings, $unit_to_courses);
+            $one = $this->export_single_course($course, $include_enrollments, !$exclude_raw_meta, $discovery, $warnings, $unit_to_courses, $analysis);
             $stats['units']       += count($one['units']);
             $stats['quizzes']     += count($one['quizzes']);
             if (count($one['quizzes'])>0) $stats['courses_with_quizzes'] += 1;
@@ -212,6 +226,10 @@ class WPLMS_S1_Exporter {
         $exported_course_ids = array_map(function($c){ return (int)$c['old_id']; }, $export['courses']);
         $export['orphans']['quizzes'] = $this->find_quizzes_referencing_missing_courses($exported_course_ids, $warnings);
 
+        // add orphans to analysis and finalize meta stats
+        $analysis['orphans'] = $export['orphans'];
+        $export['analysis'] = $analysis;
+
         $export['export_meta']['stats']     = $stats;
         $export['export_meta']['discovery'] = $discovery;
         $export['export_meta']['warnings']  = array_values(array_unique($warnings));
@@ -224,50 +242,157 @@ class WPLMS_S1_Exporter {
         exit;
     }
 
-    private function export_single_course($course, $include_enrollments, $include_raw_meta, &$discovery, &$warnings, $unit_to_courses) {
+    private function export_single_course($course, $include_enrollments, $include_raw_meta, &$discovery, &$warnings, $unit_to_courses, &$analysis) {
         $raw_meta = get_post_meta($course->ID);
         list($vibe, $vibe_extra, $third_party) = $this->bucketize_meta($raw_meta);
 
-        $dur = $this->extract_duration_pair_from_meta($vibe, array('vibe_course_duration_parameter', 'vibe_duration_parameter'));
-        if ($dur) {
-            $vibe['duration']      = $dur['duration'];
-            $vibe['duration_unit'] = $dur['duration_unit'];
+        // slugs and redirects
+        $current_slug  = $course->post_name;
+        $original_slug = $current_slug;
+        $redirected_to = null;
+        $old_slugs = get_post_meta($course->ID, '_wp_old_slug');
+        if ( !empty($old_slugs) ) {
+            $original_slug = is_array($old_slugs) ? reset($old_slugs) : $old_slugs;
+            $redirected_to = $current_slug;
         }
 
-        $access_type = $this->detect_access_type($vibe, $vibe_extra);
+        // course duration normalization
+        $dur = $this->extract_duration_pair_from_meta($vibe, array('vibe_course_duration_parameter', 'vibe_duration_parameter'));
+        if ($dur) {
+            $duration      = $dur['duration'];
+            $duration_unit = $dur['duration_unit'];
+        } else {
+            $duration = 0;
+            $duration_unit = 'minutes';
+            $analysis['courses_without_duration'][] = array('id'=>(int)$course->ID,'title'=>$course->post_title,'slug'=>$current_slug);
+        }
+        $vibe['duration']      = $duration;
+        $vibe['duration_unit'] = $duration_unit;
 
+        $access_type = $this->detect_access_type($vibe, $vibe_extra);
+        if (!isset($analysis['stats']['access_type'][$access_type])) $analysis['stats']['access_type'][$access_type] = 0;
+        $analysis['stats']['access_type'][$access_type]++;
+        if (!isset($analysis['stats']['statuses'][$course->post_status])) $analysis['stats']['statuses'][$course->post_status] = 0;
+        $analysis['stats']['statuses'][$course->post_status]++;
+
+        // Woo product info
+        $has_product = false;
+        $product_id = null;
+        $product_status = null;
+        $product_catalog_visibility = null;
+        $product_type = null;
         $price = null;
+        $regular_price = null;
         $sale_price = null;
         $subscription_price = null;
+        $subscription_period = null;
         $subscription_interval = null;
-        $subscription_unit = null;
+        $renewal_enabled = false;
+
         if ( ! empty($vibe['vibe_product']) ) {
             $product_id = is_array($vibe['vibe_product']) ? intval(reset($vibe['vibe_product'])) : intval($vibe['vibe_product']);
             if ( $product_id ) {
-                $regular = get_post_meta($product_id, '_regular_price', true);
-                if ( is_numeric($regular) ) $price = (float) $regular;
-                $sale = get_post_meta($product_id, '_sale_price', true);
-                if ( is_numeric($sale) ) $sale_price = (float) $sale;
+                $has_product = true;
+                $p = get_post($product_id);
+                if ($p) $product_status = $p->post_status;
+                $regular_price = get_post_meta($product_id, '_regular_price', true);
+                $sale_price    = get_post_meta($product_id, '_sale_price', true);
+                $price         = get_post_meta($product_id, '_price', true);
+                if (!is_numeric($regular_price)) $regular_price = null; else $regular_price = (float)$regular_price;
+                if (!is_numeric($sale_price))    $sale_price    = null; else $sale_price = (float)$sale_price;
+                if (!is_numeric($price))         $price         = null; else $price = (float)$price;
 
                 if ( function_exists('wc_get_product') ) {
                     $wc_product = wc_get_product($product_id);
-                    if ( $wc_product && method_exists($wc_product, 'is_type') && $wc_product->is_type('subscription') ) {
-                        $sub_price = get_post_meta($product_id, '_subscription_price', true);
-                        if ( is_numeric($sub_price) ) {
-                            $currency = function_exists('get_woocommerce_currency') ? get_woocommerce_currency() : get_option('woocommerce_currency');
-                            $subscription_price = array(
-                                'amount'   => (float) $sub_price,
-                                'currency' => $currency,
-                            );
+                    if ($wc_product) {
+                        if (method_exists($wc_product,'get_type')) $product_type = $wc_product->get_type();
+                        if (method_exists($wc_product,'get_catalog_visibility')) $product_catalog_visibility = $wc_product->get_catalog_visibility();
+                        if ($wc_product->is_type('subscription')) {
+                            $renewal_enabled = true;
+                            $sub_price = get_post_meta($product_id, '_subscription_price', true);
+                            if (is_numeric($sub_price)) $subscription_price = (float)$sub_price;
+                            $sub_period = get_post_meta($product_id, '_subscription_period', true);
+                            if (!empty($sub_period)) $subscription_period = $sub_period;
+                            $sub_interval = get_post_meta($product_id, '_subscription_period_interval', true);
+                            if (is_numeric($sub_interval)) $subscription_interval = (int)$sub_interval;
+                            $analysis['stats']['subscriptions']++;
                         }
-                        $sub_interval = get_post_meta($product_id, '_subscription_period_interval', true);
-                        if ( is_numeric($sub_interval) ) $subscription_interval = (int) $sub_interval;
-                        $sub_unit = get_post_meta($product_id, '_subscription_period', true);
-                        if ( ! empty($sub_unit) ) $subscription_unit = $sub_unit;
                     }
                 }
             }
         }
+
+        // subscription flags without WC product
+        if ( !$renewal_enabled ) {
+            if ( $this->is_meta_flag_on($vibe_extra, 'vibe_subscription1') || $this->is_meta_flag_on($vibe_extra, 'vibe_mycred_subscription') ) {
+                $renewal_enabled = true;
+            }
+        }
+
+        // product duration
+        $product_duration = null;
+        $product_duration_unit = null;
+        if ( isset($vibe['vibe_product_duration']) ) {
+            $pd = is_array($vibe['vibe_product_duration']) ? reset($vibe['vibe_product_duration']) : $vibe['vibe_product_duration'];
+            $pd_param = isset($vibe['vibe_product_duration_parameter']) ? $vibe['vibe_product_duration_parameter'] : null;
+            if (is_array($pd_param)) $pd_param = reset($pd_param);
+            if (is_numeric($pd) && is_numeric($pd_param)) {
+                $product_duration = (int)$pd;
+                $product_duration_unit = $this->map_duration_unit((int)$pd_param);
+            }
+        }
+
+        // course access expires - mirror product duration if set
+        $course_access_expires = false;
+        $course_access_expires_value = null;
+        $course_access_expires_unit = null;
+        if ($product_duration !== null) {
+            $course_access_expires = true;
+            $course_access_expires_value = $product_duration;
+            $course_access_expires_unit = $product_duration_unit;
+        }
+
+        // CTA detection
+        $cta_label = null;
+        $cta_url   = null;
+        $label_keys = array('vibe_apply_button_label','vibe_cta_label','cta_label');
+        $url_keys   = array('vibe_apply_button_url','vibe_cta_url','cta_url');
+        foreach ($label_keys as $k) {
+            if (!empty($vibe_extra[$k])) { $cta_label = $vibe_extra[$k]; break; }
+            if (!empty($vibe[$k])) { $cta_label = $vibe[$k]; break; }
+        }
+        foreach ($url_keys as $k) {
+            if (!empty($vibe_extra[$k])) { $cta_url = $vibe_extra[$k]; break; }
+            if (!empty($vibe[$k])) { $cta_url = $vibe[$k]; break; }
+        }
+
+        // final access classification
+        $access_type_final = $access_type;
+        $paid_reason = null;
+        if ( $access_type === 'paid' || $access_type === 'subscribe' ) {
+            if ( ! $has_product ) {
+                $access_type_final = 'closed';
+                $paid_reason = 'no_product';
+            } elseif ( $product_status !== 'publish' || $product_catalog_visibility === 'hidden' ) {
+                $access_type_final = 'closed';
+                $paid_reason = 'product_not_published';
+            } elseif ( $price === null && $regular_price === null && $sale_price === null ) {
+                $access_type_final = 'closed';
+                $paid_reason = 'no_price_on_product';
+            }
+            if ($paid_reason) {
+                $analysis['paid_without_price'][] = array('id'=>(int)$course->ID,'title'=>$course->post_title,'slug'=>$current_slug,'reason'=>$paid_reason);
+            }
+        }
+
+        if ( $cta_url && $cta_label ) {
+            if ( strpos($cta_url,'checkout')===false && strpos($cta_url,'cart')===false && strpos($cta_url,'add-to-cart')===false ) {
+                $access_type_final = 'lead';
+                $analysis['with_cta'][] = array('id'=>(int)$course->ID,'title'=>$course->post_title,'slug'=>$current_slug,'cta_label'=>$cta_label,'cta_url'=>$cta_url);
+            }
+        }
+        if (!isset($analysis['stats']['access_type_final'][$access_type_final])) $analysis['stats']['access_type_final'][$access_type_final] = 0;
+        $analysis['stats']['access_type_final'][$access_type_final]++;
 
         $thumb_id = get_post_thumbnail_id($course->ID);
         $featured = $thumb_id ? $this->get_attachment_payload($thumb_id) : null;
@@ -289,15 +414,18 @@ class WPLMS_S1_Exporter {
                 $embeds = $this->extract_embeds_from_content( (string)$u->post_content );
                 $raw    = get_post_meta($u->ID);
                 $dur    = $this->extract_duration_pair_from_meta($raw, array('vibe_unit_duration_parameter', 'vibe_duration_parameter'));
-                $meta   = array();
                 if ($dur) {
-                    $meta['duration']      = $dur['duration'];
-                    $meta['duration_unit'] = $dur['duration_unit'];
+                    $u_duration = $dur['duration'];
+                    $u_unit     = $dur['duration_unit'];
+                } else {
+                    $u_duration = 0;
+                    $u_unit     = 'minutes';
+                    $analysis['lessons_without_duration'][] = array('id'=>(int)$u->ID,'title'=>$u->post_title,'slug'=>$u->post_name,'course_id'=>(int)$course->ID);
                 }
+                $meta   = array('duration'=>$u_duration,'duration_unit'=>$u_unit);
                 if ($include_raw_meta) {
                     $meta['raw'] = $raw;
                 }
-                if (empty($meta)) $meta = (object) array();
                 $units[] = array(
                     'old_id' => (int)$u->ID,
                     'post'   => array(
@@ -430,7 +558,16 @@ class WPLMS_S1_Exporter {
         $media = array_values($media_map);
 
         $course_entry = array(
-            'old_id' => (int)$course->ID,
+            'old_id'        => (int)$course->ID,
+            'id'            => (int)$course->ID,
+            'slug'          => $current_slug,
+            'original_slug' => $original_slug,
+            'current_slug'  => $current_slug,
+            'redirected_to' => $redirected_to,
+            'access_type_final' => $access_type_final,
+            'paid_without_price_reason' => $paid_reason,
+            'cta_label' => $cta_label,
+            'cta_url'   => $cta_url,
             'post'   => array(
                 'post_title'     => $course->post_title,
                 'post_name'      => $course->post_name,
@@ -442,15 +579,29 @@ class WPLMS_S1_Exporter {
                 'featured_image' => $featured,
             ),
             'meta' => array(
-                'access_type' => $access_type,
+                'access_type'            => $access_type,
+                'duration'               => $duration,
+                'duration_unit'          => $duration_unit,
+                'has_product'            => $has_product,
+                'product_id'             => $product_id,
+                'product_status'         => $product_status,
+                'product_catalog_visibility' => $product_catalog_visibility,
+                'product_type'           => $product_type,
+                'price'                  => $price,
+                'regular_price'          => $regular_price,
+                'sale_price'             => $sale_price,
+                'subscription_price'     => $subscription_price,
+                'subscription_period'    => $subscription_period,
+                'subscription_interval'  => $subscription_interval,
+                'renewal_enabled'        => $renewal_enabled,
+                'product_duration'       => $product_duration,
+                'product_duration_unit'  => $product_duration_unit,
+                'course_access_expires'       => $course_access_expires,
+                'course_access_expires_value' => $course_access_expires_value,
+                'course_access_expires_unit'  => $course_access_expires_unit,
                 'vibe'        => $vibe,
                 'vibe_extra'  => $vibe_extra,
-                'price'                => $price,
-                'sale_price'           => $sale_price,
-                'subscription_price'   => $subscription_price,
-                'subscription_interval'=> $subscription_interval,
-                'subscription_unit'    => $subscription_unit,
-                'misc'                 => array( 'third_party' => $third_party ),
+                'misc'        => array( 'third_party' => $third_party ),
             ),
             'curriculum'     => $curriculum,
             'curriculum_raw' => $curriculum_raw,
