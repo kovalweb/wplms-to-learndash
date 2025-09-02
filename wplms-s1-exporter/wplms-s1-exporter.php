@@ -3,7 +3,7 @@
  * Plugin Name: WPLMS S1 Exporter
  * Description: Export WPLMS courses → JSON (curriculum, units+embeds, quizzes+questions, assignments, certificates, media, enrollments). Also finds quizzes via quiz meta and lists orphan units/assignments/quizzes. Compatible with PHP 7/8 (no strict type-hints).
  * Author:      Specia1ne
- * Version:     1.2.0
+ * Version:     1.3.0
  * License:     GPL-2.0-or-later
  * Text Domain: wplms-s1-exporter
  */
