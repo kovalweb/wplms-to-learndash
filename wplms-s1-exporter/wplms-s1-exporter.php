@@ -369,18 +369,18 @@ class WPLMS_S1_Exporter {
         // final access classification
         $access_type_final = $access_type;
         $paid_reason = null;
-        if ( $access_type === 'paid' || $access_type === 'subscribe' ) {
-            if ( ! $has_product ) {
+        if ( $access_type === 'paid' ) {
+            if ( ! $has_product || ! $product_id ) {
                 $access_type_final = 'closed';
                 $paid_reason = 'no_product';
-            } elseif ( $product_status !== 'publish' || $product_catalog_visibility === 'hidden' ) {
+            } elseif ( $product_status !== 'publish' || $product_catalog_visibility === 'hidden' || $product_catalog_visibility === null ) {
                 $access_type_final = 'closed';
                 $paid_reason = 'product_not_published';
             } elseif ( $price === null && $regular_price === null && $sale_price === null ) {
                 $access_type_final = 'closed';
                 $paid_reason = 'no_price_on_product';
             }
-            if ($paid_reason) {
+            if ( $paid_reason ) {
                 $analysis['paid_without_price'][] = array('id'=>(int)$course->ID,'title'=>$course->post_title,'slug'=>$current_slug,'reason'=>$paid_reason);
             }
         }
@@ -393,6 +393,12 @@ class WPLMS_S1_Exporter {
         }
         if (!isset($analysis['stats']['access_type_final'][$access_type_final])) $analysis['stats']['access_type_final'][$access_type_final] = 0;
         $analysis['stats']['access_type_final'][$access_type_final]++;
+        $product_inconsistent = false;
+        if ( $access_type_final === 'free' && $has_product ) {
+            if ( $product_status !== 'publish' || $product_catalog_visibility === 'hidden' || $product_catalog_visibility === null || $price !== null || $regular_price !== null || $sale_price !== null ) {
+                $product_inconsistent = true;
+            }
+        }
 
         $thumb_id = get_post_thumbnail_id($course->ID);
         $featured = $thumb_id ? $this->get_attachment_payload($thumb_id) : null;
@@ -566,6 +572,7 @@ class WPLMS_S1_Exporter {
             'redirected_to' => $redirected_to,
             'access_type_final' => $access_type_final,
             'paid_without_price_reason' => $paid_reason,
+            'product_inconsistent' => $product_inconsistent,
             'cta_label' => $cta_label,
             'cta_url'   => $cta_url,
             'post'   => array(
@@ -614,6 +621,9 @@ class WPLMS_S1_Exporter {
         );
         if ( $include_raw_meta ) {
             $course_entry['meta']['raw'] = $raw_meta;
+        }
+        if ( ! $course_entry['product_inconsistent'] ) {
+            unset( $course_entry['product_inconsistent'] );
         }
 
         return $course_entry;
