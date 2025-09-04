@@ -90,7 +90,12 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
             $importer->set_dry_run( $dry );
             try {
                 $stats = $importer->run( $path );
-                \WP_CLI::success( 'Done: ' . json_encode( $stats ) );
+                \WP_CLI::success( sprintf(
+                    'Media: %d %d %d',
+                    $stats['images_downloaded'] ?? 0,
+                    $stats['images_skipped_empty'] ?? 0,
+                    $stats['images_errors'] ?? 0
+                ) );
                 \WP_CLI::log( 'Log file: ' . $logger->path() );
             } catch ( \Throwable $e ) {
                 \WP_CLI::error( $e->getMessage() );
