@@ -151,6 +151,7 @@ class WPLMS_S1_Exporter {
             'with_cta'              => array(),
             'courses_without_duration' => array(),
             'lessons_without_duration' => array(),
+            'products'             => array(),
             'stats' => array(
                 'total_courses'     => count($courses),
                 'access_type'       => array(),
@@ -281,6 +282,7 @@ class WPLMS_S1_Exporter {
         $product_status = null;
         $product_catalog_visibility = null;
         $product_type = null;
+        $product_visibility_terms = array();
         $price = null;
         $regular_price = null;
         $sale_price = null;
@@ -293,8 +295,8 @@ class WPLMS_S1_Exporter {
             $product_id = is_array($vibe['vibe_product']) ? intval(reset($vibe['vibe_product'])) : intval($vibe['vibe_product']);
             if ( $product_id ) {
                 $has_product = true;
-                $p = get_post($product_id);
-                if ($p) $product_status = $p->post_status;
+                $product_status = get_post_status( $product_id );
+
                 $regular_price = get_post_meta($product_id, '_regular_price', true);
                 $sale_price    = get_post_meta($product_id, '_sale_price', true);
                 $price         = get_post_meta($product_id, '_price', true);
@@ -302,11 +304,22 @@ class WPLMS_S1_Exporter {
                 if (!is_numeric($sale_price))    $sale_price    = null; else $sale_price = (float)$sale_price;
                 if (!is_numeric($price))         $price         = null; else $price = (float)$price;
 
+                $terms = get_the_terms( $product_id, 'product_visibility' );
+                if ( is_array( $terms ) ) {
+                    foreach ( $terms as $t ) {
+                        $product_visibility_terms[] = $t->slug;
+                    }
+                }
+                if ( in_array( 'exclude-from-catalog', $product_visibility_terms, true ) || in_array( 'exclude-from-search', $product_visibility_terms, true ) ) {
+                    $product_catalog_visibility = 'hidden';
+                } else {
+                    $product_catalog_visibility = 'visible';
+                }
+
                 if ( function_exists('wc_get_product') ) {
                     $wc_product = wc_get_product($product_id);
                     if ($wc_product) {
                         if (method_exists($wc_product,'get_type')) $product_type = $wc_product->get_type();
-                        if (method_exists($wc_product,'get_catalog_visibility')) $product_catalog_visibility = $wc_product->get_catalog_visibility();
                         if ($wc_product->is_type('subscription')) {
                             $renewal_enabled = true;
                             $sub_price = get_post_meta($product_id, '_subscription_price', true);
@@ -319,6 +332,12 @@ class WPLMS_S1_Exporter {
                         }
                     }
                 }
+                $analysis['products'][] = array(
+                    'course_id' => (int)$course->ID,
+                    'product_id' => $product_id,
+                    'post_status' => $product_status,
+                    'terms' => $product_visibility_terms,
+                );
             }
         }
 

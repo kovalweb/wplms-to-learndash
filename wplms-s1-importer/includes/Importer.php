@@ -5,6 +5,7 @@ class Importer {
     private $logger;
     private $idmap;
     private $dry_run = false;
+    private $recheck = false;
 
     public function __construct( Logger $logger, IdMap $idmap ) {
         $this->logger = $logger;
@@ -12,6 +13,7 @@ class Importer {
     }
 
     public function set_dry_run( $dry ) { $this->dry_run = (bool) $dry; }
+    public function set_recheck( $flag ) { $this->recheck = (bool) $flag; }
 
     public function run( array $payload ) {
         if ( ! is_array( $payload ) ) {
@@ -167,6 +169,44 @@ class Importer {
             }
         }
 
+        $reason = '';
+        if ( $this->recheck ) {
+            $pid = (int) array_get( $course, 'meta.product_id', 0 );
+            if ( $pid && get_post( $pid ) ) {
+                $p_status = get_post_status( $pid );
+                $terms    = get_the_terms( $pid, 'product_visibility' );
+                $hidden   = false;
+                if ( is_array( $terms ) ) {
+                    foreach ( $terms as $t ) {
+                        if ( in_array( $t->slug, [ 'exclude-from-catalog', 'exclude-from-search' ], true ) ) {
+                            $hidden = true;
+                            break;
+                        }
+                    }
+                }
+                $p_price = null;
+                $meta_vals = [ get_post_meta( $pid, '_price', true ), get_post_meta( $pid, '_sale_price', true ), get_post_meta( $pid, '_regular_price', true ) ];
+                foreach ( $meta_vals as $mv ) {
+                    if ( is_numeric( $mv ) ) { $p_price = (float) $mv; break; }
+                }
+                if ( $p_status === 'publish' && ! $hidden && $p_price !== null ) {
+                    $access = 'paid';
+                    $price_type = 'buy now';
+                    $price = round( $p_price, 2 );
+                } else {
+                    $access = 'closed';
+                    $price_type = 'closed';
+                    $reason = 'product_not_published';
+                    if ( $p_status === 'publish' && ! $hidden && $p_price === null ) {
+                        $reason = 'no_price_on_product';
+                    }
+                }
+            }
+        }
+        if ( $reason ) {
+            $this->logger->write( 'recheck adjusted access', [ 'old_id' => $old_id, 'reason' => $reason ] );
+        }
+
         // duration
         $duration      = (int) array_get( $course, 'duration', 0 );
         $duration_unit = (string) array_get( $course, 'duration_unit', '' );
@@ -232,10 +272,11 @@ class Importer {
         // service meta
         \update_post_meta( $new_id, '_wplms_s1_duration', $duration );
         \update_post_meta( $new_id, '_wplms_s1_duration_unit', $duration_unit );
-        \update_post_meta( $new_id, '_wplms_s1_product_status', array_get( $course, 'product_status', '' ) );
-        \update_post_meta( $new_id, '_wplms_s1_product_catalog_visibility', array_get( $course, 'product_catalog_visibility', '' ) );
-        \update_post_meta( $new_id, '_wplms_s1_product_type', array_get( $course, 'product_type', '' ) );
+        \update_post_meta( $new_id, '_wplms_s1_product_status', array_get( $course, 'meta.product_status', '' ) );
+        \update_post_meta( $new_id, '_wplms_s1_product_catalog_visibility', array_get( $course, 'meta.product_catalog_visibility', '' ) );
+        \update_post_meta( $new_id, '_wplms_s1_product_type', array_get( $course, 'meta.product_type', '' ) );
         \update_post_meta( $new_id, '_wplms_s1_product_inconsistent', array_get( $course, 'product_inconsistent', '' ) );
+        if ( $reason ) { \update_post_meta( $new_id, '_wplms_s1_reason', $reason ); }
 
         // featured image (м’яко)
         try {
