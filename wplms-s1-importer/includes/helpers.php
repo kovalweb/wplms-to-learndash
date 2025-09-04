@@ -144,3 +144,48 @@ function sideload_featured( $image, $attach_to_post_id, Logger $logger, ?array &
     }
     return 0;
 }
+
+/**
+ * Create minimal ProQuiz master record and return its ID.
+ *
+ * @param int   $quiz_post_id Related sfwd-quiz post ID.
+ * @param array $data         Optional data: name, title, show_points...
+ *
+ * @return int  Master quiz ID or 0 on failure.
+ */
+function create_proquiz_master( $quiz_post_id, $data = [] ) {
+    global $wpdb;
+
+    $table = $wpdb->prefix . 'wp_pro_quiz_master';
+
+    // If already exists for this post, return existing ID.
+    $existing = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$table} WHERE quiz_post_id = %d", $quiz_post_id ) );
+    if ( $existing > 0 ) {
+        return $existing;
+    }
+
+    $defaults = [
+        'name'                  => '',
+        'title'                 => '',
+        'text'                  => '',
+        'result_text'           => '',
+        'toplist_activated'     => 0,
+        'show_max_question'     => 0,
+        'show_max_question_value' => 0,
+        'show_points'           => 1,
+        'statistics_on'        => 0,
+        'statistics_ip_lock'   => 0,
+        'quiz_post_id'         => (int) $quiz_post_id,
+        'author_id'            => \get_current_user_id() ?: 0,
+        'created'              => \current_time( 'mysql', true ),
+    ];
+
+    $row = \wp_parse_args( $data, $defaults );
+
+    $inserted = $wpdb->insert( $table, $row );
+    if ( $inserted ) {
+        return (int) $wpdb->insert_id;
+    }
+
+    return 0;
+}

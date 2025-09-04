@@ -534,28 +534,33 @@ class Importer {
      * Works only if ProQuiz is loaded (LD is active).
      */
     private function ensure_proquiz_link( $quiz_post_id, $title ) {
-        if ( ! class_exists( '\WP_Pro_Quiz_Model_Quiz' ) || ! class_exists( '\WP_Pro_Quiz_Model_QuizMapper' ) ) {
-            $this->logger->write( 'ProQuiz not available, skipping link', [ 'quiz_post_id' => $quiz_post_id ] );
-            return false;
+        $existing = function_exists( '\learndash_get_setting' )
+            ? (int) \learndash_get_setting( $quiz_post_id, 'ld_pro_quiz' )
+            : (int) \get_post_meta( $quiz_post_id, 'ld_pro_quiz', true );
+
+        if ( $existing > 0 ) {
+            return true;
         }
+
         try {
-            $quiz   = new \WP_Pro_Quiz_Model_Quiz();
-            $quiz->setName( $title ?: 'Quiz' );
-            $mapper = new \WP_Pro_Quiz_Model_QuizMapper();
-            $pro_id = $mapper->save( $quiz );
+            $pro_id = create_proquiz_master( $quiz_post_id, [
+                'name'  => $title ?: 'Quiz',
+                'title' => $title ?: 'Quiz',
+            ] );
             if ( $pro_id ) {
                 \update_post_meta( $quiz_post_id, 'quiz_pro', $pro_id );
                 \update_post_meta( $quiz_post_id, 'quiz_pro_id', $pro_id );
-                if ( function_exists( '\ld_update_quiz_meta' ) ) {
-                    \ld_update_quiz_meta( $quiz_post_id, 'ld_quiz_pro', $pro_id );
+                if ( function_exists( '\learndash_update_setting' ) ) {
+                    \learndash_update_setting( $quiz_post_id, 'ld_pro_quiz', $pro_id );
                 } else {
-                    \update_post_meta( $quiz_post_id, 'ld_quiz_pro', $pro_id );
+                    \update_post_meta( $quiz_post_id, 'ld_pro_quiz', $pro_id );
                 }
                 return true;
             }
         } catch ( \Throwable $e ) {
             $this->logger->write( 'create proquiz failed: ' . $e->getMessage(), [ 'quiz_post_id' => $quiz_post_id ] );
         }
+
         return false;
     }
 }
