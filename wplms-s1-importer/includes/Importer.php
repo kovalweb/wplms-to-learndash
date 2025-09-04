@@ -95,6 +95,9 @@ class Importer {
                         if ( $ok ) $stats['certificates']++;
                     }
 
+                    // attach certificate to course
+                    $this->attach_course_certificate( $course, $cid );
+
                     // enrollments (stub)
                     $enroll = (array) array_get( $course, 'enrollments', [] );
                     $this->stash_enrollments( $course, $enroll );
@@ -517,6 +520,39 @@ class Importer {
             $this->idmap->set( 'certificates', $old_id, $new_id, $slug );
         }
         return true;
+    }
+
+    private function attach_course_certificate( $course, $course_new_id ) {
+        $course_old_id = (int) array_get( $course, 'old_id', 0 );
+        $raw = array_get( $course, 'vibe.vibe_certificate_template', 0 );
+        if ( is_array( $raw ) ) {
+            $raw = reset( $raw );
+        }
+        $cert_old_id = (int) $raw;
+        if ( $cert_old_id <= 0 ) {
+            return;
+        }
+        $cert_new_id = (int) $this->idmap->get( 'certificates', $cert_old_id );
+        $log = [
+            'course_old_id' => $course_old_id,
+            'course_new_id' => $course_new_id,
+            'cert_old_id'   => $cert_old_id,
+            'cert_new_id'   => $cert_new_id,
+        ];
+        if ( $this->dry_run ) {
+            $this->logger->write( 'DRY: course certificate', $log );
+            return;
+        }
+        if ( $cert_new_id > 0 ) {
+            if ( function_exists( '\learndash_update_setting' ) ) {
+                \learndash_update_setting( $course_new_id, 'course_certificate', $cert_new_id );
+            } else {
+                \update_post_meta( $course_new_id, 'course_certificate', $cert_new_id );
+            }
+            $this->logger->write( 'course certificate attached', $log );
+        } else {
+            $this->logger->write( 'course certificate missing', $log );
+        }
     }
 
     private function stash_enrollments( $course, $enrollments ) {
