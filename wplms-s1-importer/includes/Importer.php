@@ -6,6 +6,7 @@ class Importer {
     private $idmap;
     private $dry_run = false;
     private $recheck = false;
+    private $stats_ref = null;
 
     public function __construct( Logger $logger, IdMap $idmap ) {
         $this->logger = $logger;
@@ -39,7 +40,12 @@ class Importer {
             'lessons_zero_duration' => 0,
             'skipped'               => 0,
             'errors'                => 0,
+            'images_downloaded'     => 0,
+            'images_skipped_empty'  => 0,
+            'images_errors'         => 0,
         ];
+
+        $this->stats_ref =& $stats;
 
         // 1) Courses
         $courses = (array) array_get( $payload, 'courses', [] );
@@ -133,6 +139,7 @@ class Importer {
             \update_option( \WPLMS_S1I_OPT_RUNSTATS, $stats, false );
         }
         $this->logger->write( 'Import finished', $stats );
+        $this->stats_ref = null;
         return $stats;
     }
 
@@ -280,7 +287,7 @@ class Importer {
 
         // featured image (м’яко)
         try {
-            sideload_featured( array_get( $course, 'post.featured_image', '' ), $new_id, $this->logger );
+            sideload_featured( array_get( $course, 'post.featured_image', '' ), $new_id, $this->logger, $this->stats_ref );
         } catch ( \Throwable $t ) {
             $this->logger->write( 'featured sideload exception (course)', [ 'error' => $t->getMessage() ] );
         }
@@ -360,7 +367,7 @@ class Importer {
 
         // featured image
         try {
-            sideload_featured( array_get( $unit, 'post.featured_image', '' ), $new_id, $this->logger );
+            sideload_featured( array_get( $unit, 'post.featured_image', '' ), $new_id, $this->logger, $this->stats_ref );
         } catch ( \Throwable $t ) {
             $this->logger->write( 'featured sideload exception (lesson)', [ 'error' => $t->getMessage() ] );
         }
@@ -414,7 +421,7 @@ class Importer {
             }
 
             try {
-                sideload_featured( array_get( $quiz, 'post.featured_image', '' ), $new_id, $this->logger );
+                sideload_featured( array_get( $quiz, 'post.featured_image', '' ), $new_id, $this->logger, $this->stats_ref );
             } catch ( \Throwable $t ) {
                 $this->logger->write( 'featured sideload exception (quiz)', [ 'error' => $t->getMessage() ] );
             }
@@ -494,7 +501,7 @@ class Importer {
             \update_post_meta( $new_id, '_wplms_old_id', $old_id );
 
             try {
-                sideload_featured( array_get( $cert, 'post.featured_image', '' ), $new_id, $this->logger );
+                sideload_featured( array_get( $cert, 'post.featured_image', '' ), $new_id, $this->logger, $this->stats_ref );
             } catch ( \Throwable $t ) {
                 $this->logger->write( 'featured sideload exception (certificate)', [ 'error' => $t->getMessage() ] );
             }

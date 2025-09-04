@@ -57,7 +57,7 @@ function extract_url( $value ) {
  * $image може бути рядком URL або масивом (url/source_url/guid/src).
  * На помилках не кидаємо фатал — пишемо в лог і повертаємо 0.
  */
-function sideload_featured( $image, $attach_to_post_id, Logger $logger ) {
+function sideload_featured( $image, $attach_to_post_id, Logger $logger, ?array &$stats = null ) {
     // 1) Розв’язуємо URL із довільної структури
     $url = '';
     if ( is_array( $image ) ) {
@@ -71,7 +71,9 @@ function sideload_featured( $image, $attach_to_post_id, Logger $logger ) {
     $url = trim( $url );
 
     if ( $url === '' ) {
-        $logger->write( 'featured image skipped: empty URL' );
+        if ( is_array( $stats ) ) {
+            $stats['images_skipped_empty'] = array_get( $stats, 'images_skipped_empty', 0 ) + 1;
+        }
         return 0;
     }
 
@@ -86,11 +88,17 @@ function sideload_featured( $image, $attach_to_post_id, Logger $logger ) {
         $tmp = \download_url( $url, $timeout );
     } catch ( \Throwable $t ) {
         $logger->write( 'media download error', [ 'url' => $url, 'error' => $t->getMessage() ] );
+        if ( is_array( $stats ) ) {
+            $stats['images_errors'] = array_get( $stats, 'images_errors', 0 ) + 1;
+        }
         return 0;
     }
 
     if ( \is_wp_error( $tmp ) ) {
         $logger->write( 'media download failed', [ 'url' => $url, 'error' => $tmp->get_error_message() ] );
+        if ( is_array( $stats ) ) {
+            $stats['images_errors'] = array_get( $stats, 'images_errors', 0 ) + 1;
+        }
         return 0;
     }
 
@@ -107,6 +115,9 @@ function sideload_featured( $image, $attach_to_post_id, Logger $logger ) {
     if ( isset( $results['error'] ) ) {
         @unlink( $tmp );
         $logger->write( 'media sideload failed', [ 'url' => $url, 'error' => $results['error'] ] );
+        if ( is_array( $stats ) ) {
+            $stats['images_errors'] = array_get( $stats, 'images_errors', 0 ) + 1;
+        }
         return 0;
     }
 
@@ -121,9 +132,15 @@ function sideload_featured( $image, $attach_to_post_id, Logger $logger ) {
     if ( ! \is_wp_error( $attach_id ) ) {
         \wp_update_attachment_metadata( $attach_id, \wp_generate_attachment_metadata( $attach_id, $results['file'] ) );
         \set_post_thumbnail( $attach_to_post_id, $attach_id );
+        if ( is_array( $stats ) ) {
+            $stats['images_downloaded'] = array_get( $stats, 'images_downloaded', 0 ) + 1;
+        }
         return (int) $attach_id;
     }
 
     $logger->write( 'attachment insert failed', [ 'url' => $url, 'error' => $attach_id->get_error_message() ] );
+    if ( is_array( $stats ) ) {
+        $stats['images_errors'] = array_get( $stats, 'images_errors', 0 ) + 1;
+    }
     return 0;
 }
