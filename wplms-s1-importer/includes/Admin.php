@@ -60,6 +60,10 @@ class Admin {
                                                         <th scope="row"><label for="wplms_s1i_dry">Dry run</label></th>
                                                         <td><label><input type="checkbox" name="dry" id="wplms_s1i_dry" value="1" /> Analyze only (no content will be created)</label></td>
                                                 </tr>
+                                                <tr>
+                                                        <th scope="row"><label for="wplms_s1i_recheck">Recheck products</label></th>
+                                                        <td><label><input type="checkbox" name="recheck" id="wplms_s1i_recheck" value="1" /> Verify product status & visibility</label></td>
+                                                </tr>
                                         </table>
                                         <?php \submit_button( 'Start Import' ); ?>
                                 </form>
@@ -89,7 +93,8 @@ class Admin {
 			if ( ! \current_user_can( 'manage_options' ) ) \wp_die( 'Unauthorized' );
 			\check_admin_referer( 'wplms_s1i_run' );
 
-			$dry = isset( $_POST['dry'] ) && $_POST['dry'] == '1';
+                        $dry = isset( $_POST['dry'] ) && $_POST['dry'] == '1';
+                        $recheck = isset( $_POST['recheck'] ) && $_POST['recheck'] == '1';
 
 			// handle upload
 			if ( empty( $_FILES['wplms_s1i_file'] ) || empty( $_FILES['wplms_s1i_file']['tmp_name'] ) || empty( $_FILES['wplms_s1i_file']['size'] ) ) {
@@ -124,6 +129,7 @@ class Admin {
                         $idmap    = new IdMap();
                         $importer = new Importer( $logger, $idmap );
                         $importer->set_dry_run( $dry );
+                        $importer->set_recheck( $recheck );
 
                         $report = [
                                 'dry'   => $dry,
