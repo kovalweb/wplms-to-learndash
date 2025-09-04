@@ -3,11 +3,12 @@ namespace WPLMS_S1I;
 class Admin {
 		private $page_slug = 'wplms-s1-importer';
 
-		public function hooks() {
-			\add_action( 'admin_menu', [ $this, 'menu' ] );
-			\add_action( 'admin_post_wplms_s1i_run', [ $this, 'handle_import' ] );
-			\add_action( 'admin_post_wplms_s1i_reset', [ $this, 'handle_reset' ] );
-		}
+                public function hooks() {
+                        \add_action( 'admin_menu', [ $this, 'menu' ] );
+                        \add_action( 'admin_post_wplms_s1i_run', [ $this, 'handle_import' ] );
+                        \add_action( 'admin_post_wplms_s1i_reset', [ $this, 'handle_reset' ] );
+                        \add_action( 'admin_post_wplms_s1i_repair_proquiz', [ $this, 'handle_repair_proquiz' ] );
+                }
 
 		public function menu() {
 			\add_submenu_page(
@@ -29,6 +30,11 @@ class Admin {
                                 $report = \get_transient( 'wplms_s1i_last_report_' . $key );
                         }
 
+                        $repair_summary = \get_transient( 'wplms_s1i_repair_summary' );
+                        if ( $repair_summary ) {
+                                \delete_transient( 'wplms_s1i_repair_summary' );
+                        }
+
                         $idmap        = new IdMap();
                         $stats_option = \get_option( \WPLMS_S1I_OPT_RUNSTATS, [] );
                         $en_pool      = \get_option( \WPLMS_S1I_OPT_ENROLL_POOL, [] );
@@ -37,6 +43,10 @@ class Admin {
                         <div class="wrap">
                                 <h1>WPLMS → LearnDash Importer (PoC)</h1>
                                 <p>Version <?php echo \esc_html( \WPLMS_S1I_VER ); ?>. Use this to import the JSON created by WPLMS S1 Exporter.</p>
+
+                                <?php if ( $repair_summary ) : ?>
+                                        <div class="notice notice-success"><p><?php echo \esc_html( 'ProQuiz repair fixed ' . array_get( $repair_summary, 'fixed', 0 ) . ( array_get( $repair_summary, 'ids' ) ? ': ' . implode( ', ', array_map( 'intval', (array) array_get( $repair_summary, 'ids', [] ) ) ) : '' ) ); ?></p></div>
+                                <?php endif; ?>
 
                                 <?php if ( $report ) : ?>
                                         <h2 class="title">Run Report <?php echo $report['dry'] ? '<span style="font-size:0.8em;background:#ddd;padding:2px 6px;border-radius:3px;">Dry run</span>' : '<span style="font-size:0.8em;background:#ddd;padding:2px 6px;border-radius:3px;">Real run</span>'; ?></h2>
@@ -73,6 +83,12 @@ class Admin {
                                         <?php \wp_nonce_field( 'wplms_s1i_reset' ); ?>
                                         <input type="hidden" name="action" value="wplms_s1i_reset" />
                                         <?php \submit_button( 'Reset ID Map & Stats', 'delete' ); ?>
+                                </form>
+
+                                <form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>" style="margin-top:1em;">
+                                        <?php \wp_nonce_field( 'wplms_s1i_repair_proquiz' ); ?>
+                                        <input type="hidden" name="action" value="wplms_s1i_repair_proquiz" />
+                                        <?php \submit_button( 'Repair ProQuiz Links', 'secondary' ); ?>
                                 </form>
 
                                 <h2 class="title">ID Map (summary)<?php echo ( $report && ! empty( $report['dry'] ) ) ? ' <small>(Dry run doesn\'t update ID Map)</small>' : ''; ?></h2>
@@ -161,6 +177,49 @@ class Admin {
                         \delete_option( \WPLMS_S1I_OPT_RUNSTATS );
                         \delete_option( \WPLMS_S1I_OPT_ENROLL_POOL );
                         \wp_safe_redirect( \add_query_arg( [ 'page'=>$this->page_slug, 'reset'=>1 ], \admin_url( 'tools.php' ) ) );
+                        exit;
+                }
+
+                public function handle_repair_proquiz() {
+                        if ( ! \current_user_can( 'manage_options' ) ) \wp_die( 'Unauthorized' );
+                        \check_admin_referer( 'wplms_s1i_repair_proquiz' );
+
+                        $fixed = [];
+                        global $wpdb;
+                        $table = $wpdb->prefix . 'wp_pro_quiz_master';
+
+                        $quizzes = \get_posts( [
+                                'post_type'      => 'sfwd-quiz',
+                                'post_status'    => 'any',
+                                'posts_per_page' => -1,
+                                'fields'         => 'ids',
+                        ] );
+
+                        foreach ( $quizzes as $qid ) {
+                                $existing = function_exists( '\learndash_get_setting' ) ? (int) \learndash_get_setting( $qid, 'ld_pro_quiz' ) : (int) \get_post_meta( $qid, 'ld_pro_quiz', true );
+                                if ( $existing > 0 ) {
+                                        $row = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$table} WHERE id = %d", $existing ) );
+                                        if ( $row > 0 ) {
+                                                continue; // Already linked
+                                        }
+                                }
+
+                                $title  = \get_the_title( $qid );
+                                $master = create_proquiz_master( $qid, [ 'name' => $title, 'title' => $title ] );
+                                if ( $master ) {
+                                        \update_post_meta( $qid, 'quiz_pro', $master );
+                                        \update_post_meta( $qid, 'quiz_pro_id', $master );
+                                        if ( function_exists( '\learndash_update_setting' ) ) {
+                                                \learndash_update_setting( $qid, 'ld_pro_quiz', $master );
+                                        } else {
+                                                \update_post_meta( $qid, 'ld_pro_quiz', $master );
+                                        }
+                                        $fixed[] = $qid;
+                                }
+                        }
+
+                        \set_transient( 'wplms_s1i_repair_summary', [ 'fixed' => count( $fixed ), 'ids' => $fixed ], 60 );
+                        \wp_safe_redirect( \add_query_arg( [ 'page' => $this->page_slug, 'repair' => 1 ], \admin_url( 'tools.php' ) ) );
                         exit;
                 }
         }
