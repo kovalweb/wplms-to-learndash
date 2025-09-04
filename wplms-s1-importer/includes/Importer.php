@@ -113,7 +113,35 @@ class Importer {
             }
         }
 
-        // 2) Orphans
+        // 2) Assignments
+        $assns = (array) array_get( $payload, 'assignments', [] );
+        foreach ( $assns as $assn ) {
+            try {
+                $course_old_id = (int) array_get( $assn, 'links.course', array_get( $assn, 'course', 0 ) );
+                if ( is_array( $course_old_id ) ) { $course_old_id = reset( $course_old_id ); }
+                $lesson_old_id = (int) array_get( $assn, 'links.unit', array_get( $assn, 'unit', 0 ) );
+                if ( is_array( $lesson_old_id ) ) { $lesson_old_id = reset( $lesson_old_id ); }
+
+                $course_new_id = $course_old_id ? $this->idmap->get( 'courses', $course_old_id ) : 0;
+                $lesson_new_id = $lesson_old_id ? $this->idmap->get( 'units', $lesson_old_id ) : 0;
+                $is_orphan     = ( $course_old_id && ! $course_new_id ) || ( $lesson_old_id && ! $lesson_new_id );
+                if ( ! $course_old_id && ! $lesson_old_id ) { $is_orphan = true; }
+
+                $ok = $this->import_assignment( $assn, $course_new_id, $lesson_new_id, $is_orphan );
+                if ( $ok ) {
+                    if ( $is_orphan ) {
+                        $stats['orphans_assignments']++;
+                    } else {
+                        $stats['assignments']++;
+                    }
+                }
+            } catch ( \Throwable $e ) {
+                $stats['errors']++;
+                $this->logger->write( 'assignment import failed: ' . $e->getMessage(), [ 'trace' => $e->getTraceAsString() ] );
+            }
+        }
+
+        // 3) Orphans
         $orph = (array) array_get( $payload, 'orphans', [] );
         foreach ( (array) array_get( $orph, 'units', [] ) as $unit ) {
             $lres = $this->import_lesson( $unit, 0, 0, true );
@@ -441,37 +469,70 @@ class Importer {
     private function import_assignment( $assn, $course_new_id = 0, $lesson_new_id = 0, $is_orphan = false ) {
         $old_id   = (int) array_get( $assn, 'old_id', 0 );
         $existing = $this->idmap->get( 'assignments', $old_id );
-        if ( $existing ) return true;
+
+        // Resolve parents from payload if not explicitly provided.
+        if ( ! $course_new_id ) {
+            $course_old_id = array_get( $assn, 'links.course', array_get( $assn, 'course', 0 ) );
+            if ( is_array( $course_old_id ) ) { $course_old_id = reset( $course_old_id ); }
+            $course_new_id = $course_old_id ? $this->idmap->get( 'courses', (int) $course_old_id ) : 0;
+        }
+        if ( ! $lesson_new_id ) {
+            $lesson_old_id = array_get( $assn, 'links.unit', array_get( $assn, 'unit', 0 ) );
+            if ( is_array( $lesson_old_id ) ) { $lesson_old_id = reset( $lesson_old_id ); }
+            $lesson_new_id = $lesson_old_id ? $this->idmap->get( 'units', (int) $lesson_old_id ) : 0;
+        }
+        if ( ! $is_orphan && ! $course_new_id && ! $lesson_new_id ) {
+            $is_orphan = true;
+        }
 
         $title   = array_get( $assn, 'post.post_title', 'Assignment' );
         $content = ensure_oembed( array_get( $assn, 'post.post_content', '' ), array_get( $assn, 'embeds', [] ) );
         $slug    = normalize_slug( array_get( $assn, 'post.post_name', '' ) );
+        $status  = strtolower( array_get( $assn, 'post.status', 'publish' ) ) === 'publish' ? 'publish' : 'draft';
 
         $args = [
             'post_type'    => 'sfwd-assignment',
-            'post_status'  => 'publish',
+            'post_status'  => $status,
             'post_title'   => $title,
             'post_content' => $content,
             'post_parent'  => (int) ( $lesson_new_id ?: $course_new_id ),
         ];
-        if ( $slug ) $args['post_name'] = $slug;
+        if ( $slug ) { $args['post_name'] = $slug; }
 
-        if ( $this->dry_run ) {
-            $this->logger->write( 'DRY: create assignment', [ 'title'=>$title, 'course'=>$course_new_id, 'lesson'=>$lesson_new_id ] );
-        } else {
-            $new_id = \wp_insert_post( $args, true );
+        if ( $existing ) {
+            $args['ID'] = $existing;
+            if ( $this->dry_run ) {
+                $this->logger->write( 'DRY: update assignment', [ 'id' => $existing, 'course' => $course_new_id, 'lesson' => $lesson_new_id ] );
+                return true;
+            }
+            $new_id = \wp_update_post( $args, true );
             if ( \is_wp_error( $new_id ) ) {
-                $this->logger->write( 'assignment insert failed: ' . $new_id->get_error_message(), [ 'old_id'=>$old_id ] );
+                $this->logger->write( 'assignment update failed: ' . $new_id->get_error_message(), [ 'old_id' => $old_id ] );
                 return false;
             }
-
+            $new_id = (int) $new_id;
+        } else {
+            if ( $this->dry_run ) {
+                $this->logger->write( 'DRY: create assignment', [ 'title' => $title, 'course' => $course_new_id, 'lesson' => $lesson_new_id ] );
+                return true;
+            }
+            $new_id = \wp_insert_post( $args, true );
+            if ( \is_wp_error( $new_id ) ) {
+                $this->logger->write( 'assignment insert failed: ' . $new_id->get_error_message(), [ 'old_id' => $old_id ] );
+                return false;
+            }
             \update_post_meta( $new_id, '_wplms_old_id', $old_id );
-            if ( $course_new_id ) \update_post_meta( $new_id, 'course_id', (int) $course_new_id );
-            if ( $lesson_new_id ) \update_post_meta( $new_id, 'lesson_id', (int) $lesson_new_id );
-            if ( $is_orphan ) \update_post_meta( $new_id, '_wplms_orphan', 1 );
-
             $this->idmap->set( 'assignments', $old_id, $new_id, $slug );
         }
+
+        if ( $course_new_id ) { \update_post_meta( $new_id, 'course_id', (int) $course_new_id ); }
+        if ( $lesson_new_id ) { \update_post_meta( $new_id, 'lesson_id', (int) $lesson_new_id ); }
+        if ( $is_orphan ) {
+            \update_post_meta( $new_id, '_wplms_orphan', 1 );
+        } else {
+            \delete_post_meta( $new_id, '_wplms_orphan' );
+        }
+
         return true;
     }
 
