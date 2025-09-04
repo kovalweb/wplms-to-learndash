@@ -72,6 +72,17 @@ class WPLMS_S1_Exporter {
                             <label><input type="checkbox" name="exclude_raw_meta" value="1"> Yes — do not include meta.raw dumps (smaller files)</label>
                         </td>
                     </tr>
+                    <tr>
+                        <th scope="row"><label for="export_mode">Export mode</label></th>
+                        <td>
+                            <select id="export_mode" name="export_mode">
+                                <option value="discover_related" selected>Discover related</option>
+                                <option value="discover_all">Discover all</option>
+                                <option value="strict">Strict (no orphans)</option>
+                            </select>
+                            <p class="description">Controls inclusion of orphaned units, assignments and quizzes.</p>
+                        </td>
+                    </tr>
                 </table>
 
                 <p><button class="button button-primary">Export JSON</button></p>
@@ -90,6 +101,10 @@ class WPLMS_S1_Exporter {
         $limit = isset($_POST['limit']) ? max(0, intval($_POST['limit'])) : 0;
         $include_enrollments = ! empty($_POST['include_enrollments']);
         $exclude_raw_meta    = ! empty($_POST['exclude_raw_meta']);
+        $export_mode = isset($_POST['export_mode']) ? sanitize_text_field($_POST['export_mode']) : 'discover_related';
+        if ( ! in_array( $export_mode, array('strict','discover_related','discover_all'), true ) ) {
+            $export_mode = 'discover_related';
+        }
 
         $args = array(
             'post_type'        => 'course',
@@ -138,6 +153,7 @@ class WPLMS_S1_Exporter {
                 'count'        => count($courses),
                 'include_enrollments' => $include_enrollments ? 1 : 0,
                 'exclude_raw_meta'    => $exclude_raw_meta ? 1 : 0,
+                'export_mode'         => $export_mode,
                 'stats'       => null,
                 'discovery'   => null,
                 'warnings'    => null,
@@ -180,52 +196,70 @@ class WPLMS_S1_Exporter {
             $export['courses'][] = $one;
         }
 
-        // Orphan units with assignments but not in any course
-        $units_all = get_posts(array(
-            'post_type'=>'unit',
-            'post_status'=>array('publish','draft','pending','private'),
-            'numberposts'=>-1,
-            'fields'=>'ids',
-            'suppress_filters'=>true,
-        ));
-        foreach ($units_all as $uid) {
-            if ( isset($used_units[$uid]) ) continue;
-            $ass_ids = $this->extract_assignments_from_unit($uid, $warnings);
-            if ($ass_ids) {
-                $in_any_course = !empty($unit_to_courses[$uid]);
-                if ( ! $in_any_course ) {
-                    $up = get_post($uid);
-                    if ($up) {
-                        $export['orphans']['units'][] = array(
-                            'old_id' => (int)$up->ID,
-                            'post'   => array( 'post_title'=>$up->post_title, 'status'=>$up->post_status ),
-                            'assignments' => array_values(array_unique($ass_ids)),
-                        );
+        $exported_course_ids = array_map(function($c){ return (int)$c['old_id']; }, $export['courses']);
+        $parents = array_map('intval', array_unique(array_merge($ids, $exported_course_ids)));
+
+        if ( $stats['courses'] > 0 && $export_mode !== 'strict' ) {
+            // Orphan units with assignments but not in any course
+            $units_all = get_posts(array(
+                'post_type'=>'unit',
+                'post_status'=>array('publish','draft','pending','private'),
+                'numberposts'=>-1,
+                'fields'=>'ids',
+                'suppress_filters'=>true,
+            ));
+            foreach ($units_all as $uid) {
+                if ( isset($used_units[$uid]) ) continue;
+                $ass_ids = $this->extract_assignments_from_unit($uid, $warnings);
+                if ($ass_ids) {
+                    $in_any_course = !empty($unit_to_courses[$uid]);
+                    if ( ! $in_any_course ) {
+                        $up = get_post($uid);
+                        if ($up) {
+                            $parent = (int) get_post_field('post_parent', $uid);
+                            $entry = array(
+                                'old_id'      => (int)$up->ID,
+                                'post'        => array( 'post_title'=>$up->post_title, 'status'=>$up->post_status ),
+                                'assignments' => array_values(array_unique($ass_ids)),
+                                'reason'      => 'not_in_curriculum',
+                            );
+                            if ($parent > 0) $entry['parent_course_old_id'] = $parent;
+                            if ($export_mode === 'discover_all' || ($parent > 0 && in_array($parent, $parents, true))) {
+                                $export['orphans']['units'][] = $entry;
+                                foreach ($ass_ids as $aid) { if ( !isset($used_assignments[$aid]) ) $used_assignments[$aid] = false; }
+                            }
+                        }
                     }
-                    foreach ($ass_ids as $aid) { if ( !isset($used_assignments[$aid]) ) $used_assignments[$aid] = false; }
                 }
             }
-        }
 
-        // Orphan assignments not used anywhere
-        $assign_posts = get_posts(array(
-            'post_type'=>'wplms-assignment',
-            'post_status'=>array('publish','draft','pending','private'),
-            'numberposts'=>-1,
-            'suppress_filters'=>true,
-        ));
-        foreach ($assign_posts as $ap) {
-            if ( ! isset($used_assignments[$ap->ID]) ) {
-                $export['orphans']['assignments'][] = array(
-                    'old_id' => (int)$ap->ID,
-                    'post'   => array( 'post_title'=>$ap->post_title, 'status'=>$ap->post_status ),
-                );
+            // Orphan assignments not used anywhere
+            $assign_posts = get_posts(array(
+                'post_type'=>'wplms-assignment',
+                'post_status'=>array('publish','draft','pending','private'),
+                'numberposts'=>-1,
+                'suppress_filters'=>true,
+            ));
+            foreach ($assign_posts as $ap) {
+                if ( ! isset($used_assignments[$ap->ID]) ) {
+                    $parent = (int) get_post_field('post_parent', $ap->ID);
+                    $entry = array(
+                        'old_id' => (int)$ap->ID,
+                        'post'   => array( 'post_title'=>$ap->post_title, 'status'=>$ap->post_status ),
+                        'reason' => 'not_in_curriculum',
+                    );
+                    if ($parent > 0) $entry['parent_course_old_id'] = $parent;
+                    if ($export_mode === 'discover_all' || ($parent > 0 && in_array($parent, $parents, true))) {
+                        $export['orphans']['assignments'][] = $entry;
+                    }
+                }
             }
-        }
 
-        // Orphan quizzes that reference missing courses
-        $exported_course_ids = array_map(function($c){ return (int)$c['old_id']; }, $export['courses']);
-        $export['orphans']['quizzes'] = $this->find_quizzes_referencing_missing_courses($exported_course_ids, $warnings);
+            // Orphan quizzes that reference missing courses
+            $export['orphans']['quizzes'] = $this->find_quizzes_referencing_missing_courses($parents, $warnings, $export_mode);
+        } else {
+            $export['orphans'] = array( 'units'=>array(), 'assignments'=>array(), 'quizzes'=>array() );
+        }
 
         // add orphans to analysis and finalize meta stats
         $analysis['orphans'] = $export['orphans'];
@@ -650,7 +684,7 @@ class WPLMS_S1_Exporter {
 
     /** ---------- Orphan quizzes detection ---------- */
 
-    private function find_quizzes_referencing_missing_courses(array $exported_course_ids, array &$warnings) {
+    private function find_quizzes_referencing_missing_courses(array $parent_course_ids, array &$warnings, $export_mode) {
         $out = array();
         $qids = get_posts(array(
             'post_type'        => 'quiz',
@@ -674,12 +708,16 @@ class WPLMS_S1_Exporter {
             foreach ($all as $cid) {
                 if ( ! get_post($cid) ) $missing[] = (int)$cid;
             }
+            $has_parent = !empty(array_intersect($all, $parent_course_ids));
             if (!empty($missing)) {
-                $out[] = array(
-                    'old_id'          => (int)$qid,
-                    'links'           => $links,
-                    'missing_courses' => array_values(array_unique($missing)),
-                );
+                if ($export_mode === 'discover_all' || $has_parent) {
+                    $out[] = array(
+                        'old_id'          => (int)$qid,
+                        'links'           => $links,
+                        'missing_courses' => array_values(array_unique($missing)),
+                        'reason'          => 'missing_parent_deleted',
+                    );
+                }
             }
         }
         return $out;
