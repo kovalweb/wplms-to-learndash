@@ -10,6 +10,7 @@ class Admin {
                         \add_action( 'admin_post_wplms_s1i_repair_proquiz', [ $this, 'handle_repair_proquiz' ] );
                         \add_action( 'admin_post_wplms_s1i_attach_orphans', [ $this, 'handle_attach_orphans' ] );
                         \add_action( 'admin_post_wplms_s1i_orphans_csv', [ $this, 'handle_orphans_csv' ] );
+                        \add_action( 'admin_post_wplms_s1i_ld_upgrades', [ $this, 'handle_ld_upgrades' ] );
                 }
 
 		public function menu() {
@@ -40,6 +41,10 @@ class Admin {
                         if ( $attach_summary ) {
                                 \delete_transient( 'wplms_s1i_attach_summary' );
                         }
+                        $ldu_notice = \get_transient( 'wplms_s1i_ld_upgrades_notice' );
+                        if ( $ldu_notice ) {
+                                \delete_transient( 'wplms_s1i_ld_upgrades_notice' );
+                        }
 
                         $idmap        = new IdMap();
                         $stats_option = \get_option( \WPLMS_S1I_OPT_RUNSTATS, [] );
@@ -55,6 +60,9 @@ class Admin {
                                 <?php endif; ?>
                                 <?php if ( $attach_summary ) : ?>
                                         <div class="notice notice-success"><p><?php echo \esc_html( 'Orphans attached — lessons ' . array_get( $attach_summary, 'units_attached', 0 ) . ' (left ' . array_get( $attach_summary, 'units_left', 0 ) . '), quizzes ' . array_get( $attach_summary, 'quizzes_attached', 0 ) . ' (left ' . array_get( $attach_summary, 'quizzes_left', 0 ) . '), assignments ' . array_get( $attach_summary, 'assignments_attached', 0 ) . ' (left ' . array_get( $attach_summary, 'assignments_left', 0 ) . ')' ); ?></p></div>
+                                <?php endif; ?>
+                                <?php if ( $ldu_notice ) : ?>
+                                        <div class="notice notice-info"><p><?php echo \esc_html( $ldu_notice ); ?></p></div>
                                 <?php endif; ?>
 
                                 <?php if ( $report ) : ?>
@@ -98,6 +106,12 @@ class Admin {
                                         <?php \wp_nonce_field( 'wplms_s1i_repair_proquiz' ); ?>
                                         <input type="hidden" name="action" value="wplms_s1i_repair_proquiz" />
                                         <?php \submit_button( 'Repair ProQuiz Links', 'secondary' ); ?>
+                                </form>
+
+                                <form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>" style="margin-top:1em;">
+                                        <?php \wp_nonce_field( 'wplms_s1i_ld_upgrades' ); ?>
+                                        <input type="hidden" name="action" value="wplms_s1i_ld_upgrades" />
+                                        <?php \submit_button( 'Run LearnDash Upgrades (Quizzes/Questions)', 'secondary' ); ?>
                                 </form>
 
                                 <form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>" style="margin-top:1em;">
@@ -241,6 +255,23 @@ class Admin {
 
                         \set_transient( 'wplms_s1i_repair_summary', [ 'fixed' => count( $fixed ), 'ids' => $fixed ], 60 );
                         \wp_safe_redirect( \add_query_arg( [ 'page' => $this->page_slug, 'repair' => 1 ], \admin_url( 'tools.php' ) ) );
+                        exit;
+                }
+
+                public function handle_ld_upgrades() {
+                        if ( ! \current_user_can( 'manage_options' ) ) \wp_die( 'Unauthorized' );
+                        \check_admin_referer( 'wplms_s1i_ld_upgrades' );
+
+                        $logger = new Logger();
+                        $logger->write( 'LD upgrades trigger' );
+
+                        $url = \admin_url( 'admin.php?page=learndash-data-upgrades' );
+                        if ( ! class_exists( '\Learndash_Admin_Data_Upgrades' ) ) {
+                                \set_transient( 'wplms_s1i_ld_upgrades_notice', 'Run quizzes/questions data upgrades from LearnDash Tools > Data Upgrades.', 60 );
+                                $url = \add_query_arg( [ 'page' => $this->page_slug ], \admin_url( 'tools.php' ) );
+                        }
+
+                        \wp_safe_redirect( $url );
                         exit;
                 }
 
