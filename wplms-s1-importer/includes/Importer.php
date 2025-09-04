@@ -316,6 +316,9 @@ class Importer {
         \update_post_meta( $new_id, '_wplms_s1_product_inconsistent', array_get( $course, 'product_inconsistent', '' ) );
         if ( $reason ) { \update_post_meta( $new_id, '_wplms_s1_reason', $reason ); }
 
+        // store raw curriculum for later orphan attachment
+        \update_post_meta( $new_id, '_wplms_s1_curriculum_raw', (array) array_get( $course, 'curriculum_raw', [] ) );
+
         // featured image (м’яко)
         try {
             sideload_featured( array_get( $course, 'post.featured_image', '' ), $new_id, $this->logger, $this->stats_ref );
@@ -450,6 +453,8 @@ class Importer {
             if ( $is_orphan ) {
                 \update_post_meta( $new_id, '_wplms_orphan', 1 );
             }
+            $links = (array) array_get( $quiz, 'links', [] );
+            if ( ! empty( $links ) ) { \update_post_meta( $new_id, '_wplms_s1_links', $links ); }
 
             try {
                 sideload_featured( array_get( $quiz, 'post.featured_image', '' ), $new_id, $this->logger, $this->stats_ref );
@@ -469,6 +474,8 @@ class Importer {
     private function import_assignment( $assn, $course_new_id = 0, $lesson_new_id = 0, $is_orphan = false ) {
         $old_id   = (int) array_get( $assn, 'old_id', 0 );
         $existing = $this->idmap->get( 'assignments', $old_id );
+        $course_old_id = 0;
+        $lesson_old_id = 0;
 
         // Resolve parents from payload if not explicitly provided.
         if ( ! $course_new_id ) {
@@ -525,6 +532,7 @@ class Importer {
             $this->idmap->set( 'assignments', $old_id, $new_id, $slug );
         }
 
+        \update_post_meta( $new_id, '_wplms_s1_links', [ 'course' => (int) $course_old_id, 'unit' => (int) $lesson_old_id ] );
         if ( $course_new_id ) { \update_post_meta( $new_id, 'course_id', (int) $course_new_id ); }
         if ( $lesson_new_id ) { \update_post_meta( $new_id, 'lesson_id', (int) $lesson_new_id ); }
         if ( $is_orphan ) {
