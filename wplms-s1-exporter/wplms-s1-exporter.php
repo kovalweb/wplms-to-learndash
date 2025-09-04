@@ -158,6 +158,7 @@ class WPLMS_S1_Exporter {
                 'discovery'   => null,
                 'warnings'    => null,
             ),
+            'taxonomies' => array(),
             'courses' => array(),
             'orphans' => array( 'units'=>array(), 'assignments'=>array(), 'quizzes'=>array() ),
         );
@@ -179,9 +180,10 @@ class WPLMS_S1_Exporter {
 
         $used_units = array();
         $used_assignments = array();
+        $taxonomy_terms = array( 'course-cat' => array(), 'course-tag' => array() );
 
         foreach ( $courses as $course ) {
-            $one = $this->export_single_course($course, $include_enrollments, !$exclude_raw_meta, $discovery, $warnings, $unit_to_courses, $analysis);
+            $one = $this->export_single_course($course, $include_enrollments, !$exclude_raw_meta, $discovery, $warnings, $unit_to_courses, $analysis, $taxonomy_terms);
             $stats['units']       += count($one['units']);
             $stats['quizzes']     += count($one['quizzes']);
             if (count($one['quizzes'])>0) $stats['courses_with_quizzes'] += 1;
@@ -194,6 +196,16 @@ class WPLMS_S1_Exporter {
             foreach ($one['assignments'] as $a) $used_assignments[$a['old_id']] = true;
 
             $export['courses'][] = $one;
+        }
+
+        $stats['course_cat_terms'] = count($taxonomy_terms['course-cat']);
+        $stats['course_tag_terms'] = count($taxonomy_terms['course-tag']);
+
+        if ( ! empty( $taxonomy_terms['course-cat'] ) ) {
+            $export['taxonomies']['course-cat'] = array_values( $taxonomy_terms['course-cat'] );
+        }
+        if ( ! empty( $taxonomy_terms['course-tag'] ) ) {
+            $export['taxonomies']['course-tag'] = array_values( $taxonomy_terms['course-tag'] );
         }
 
         $exported_course_ids = array_map(function($c){ return (int)$c['old_id']; }, $export['courses']);
@@ -277,7 +289,7 @@ class WPLMS_S1_Exporter {
         exit;
     }
 
-    private function export_single_course($course, $include_enrollments, $include_raw_meta, &$discovery, &$warnings, $unit_to_courses, &$analysis) {
+    private function export_single_course($course, $include_enrollments, $include_raw_meta, &$discovery, &$warnings, $unit_to_courses, &$analysis, &$taxonomy_terms) {
         $raw_meta = get_post_meta($course->ID);
         list($vibe, $vibe_extra, $third_party) = $this->bucketize_meta($raw_meta);
 
@@ -289,6 +301,36 @@ class WPLMS_S1_Exporter {
         if ( !empty($old_slugs) ) {
             $original_slug = is_array($old_slugs) ? reset($old_slugs) : $old_slugs;
             $redirected_to = $current_slug;
+        }
+
+        $category_slugs = array();
+        $tag_slugs      = array();
+
+        $cat_terms = get_the_terms( $course->ID, 'course-cat' );
+        if ( is_array( $cat_terms ) ) {
+            usort( $cat_terms, function ( $a, $b ) {
+                $da = count( get_ancestors( $a->term_id, 'course-cat' ) );
+                $db = count( get_ancestors( $b->term_id, 'course-cat' ) );
+                if ( $da === $db ) return strcmp( $a->slug, $b->slug );
+                return $da - $db;
+            } );
+            foreach ( $cat_terms as $t ) {
+                $category_slugs[] = $t->slug;
+                if ( ! isset( $taxonomy_terms['course-cat'][ $t->term_id ] ) ) {
+                    $taxonomy_terms['course-cat'][ $t->term_id ] = $this->build_taxonomy_term_entry( $t, 'course-cat' );
+                }
+            }
+        }
+
+        $tag_terms = get_the_terms( $course->ID, 'course-tag' );
+        if ( is_array( $tag_terms ) ) {
+            foreach ( $tag_terms as $t ) {
+                $tag_slugs[] = $t->slug;
+                if ( ! isset( $taxonomy_terms['course-tag'][ $t->term_id ] ) ) {
+                    $taxonomy_terms['course-tag'][ $t->term_id ] = $this->build_taxonomy_term_entry( $t, 'course-tag' );
+                }
+            }
+            sort( $tag_slugs, SORT_STRING );
         }
 
         // course duration normalization
@@ -669,6 +711,8 @@ class WPLMS_S1_Exporter {
             'quizzes'        => $quizzes,
             'assignments'    => $assignments,
             'certificates'   => $certificates,
+            'category_slugs' => $category_slugs,
+            'tag_slugs'      => $tag_slugs,
             'enrollments'    => $enrollments,
             'media'          => $media,
         );
@@ -759,6 +803,36 @@ class WPLMS_S1_Exporter {
     }
 
     /** ---------- Helpers ---------- */
+
+    private function build_taxonomy_term_entry( $term, $taxonomy ) {
+        $parent_id = $term->parent ? (int) $term->parent : null;
+        $parent_slug = null;
+        if ( $parent_id ) {
+            $parent_obj = get_term( $parent_id, $taxonomy );
+            if ( $parent_obj && ! is_wp_error( $parent_obj ) ) {
+                $parent_slug = $parent_obj->slug;
+            }
+        }
+
+        $path_ids = array_reverse( get_ancestors( $term->term_id, $taxonomy ) );
+        $path = array();
+        foreach ( $path_ids as $aid ) {
+            $anc = get_term( $aid, $taxonomy );
+            if ( $anc && ! is_wp_error( $anc ) ) {
+                $path[] = $anc->slug;
+            }
+        }
+        $path[] = $term->slug;
+
+        return array(
+            'term_id'        => (int) $term->term_id,
+            'slug'           => $term->slug,
+            'name'           => $term->name,
+            'parent_term_id' => $parent_id,
+            'parent_slug'    => $parent_slug,
+            'path'           => $path,
+        );
+    }
 
     private function extract_embeds_from_content( $html ) {
         $out = array();
