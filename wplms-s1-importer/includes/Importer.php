@@ -469,7 +469,15 @@ class Importer {
             }
 
             // >>> ProQuiz master record & link (fixes "Missing ProQuiz Associated Settings")
-            $this->ensure_proquiz_link( $new_id, $title );
+            $pro_id = $this->ensure_proquiz_link( $new_id, $title );
+
+            // Import questions if provided and ProQuiz master exists.
+            if ( $pro_id ) {
+                $questions = (array) array_get( $quiz, 'questions', [] );
+                if ( $questions ) {
+                    $this->import_quiz_questions( $pro_id, $questions );
+                }
+            }
 
             $this->idmap->set( 'quizzes', $old_id, $new_id, $slug );
         }
@@ -645,9 +653,82 @@ class Importer {
         $this->logger->write( 'enrollments stashed', [ 'course_old_id'=>$old_id, 'count'=>count( (array) $enrollments ) ] );
     }
 
+    private function import_quiz_questions( $pro_id, array $questions ) {
+        $sort = 0;
+
+        foreach ( $questions as $q ) {
+            $type = strtolower( array_get( $q, 'type', '' ) );
+            if ( ! in_array( $type, [ 'single', 'multiple' ], true ) ) {
+                continue;
+            }
+
+            $title    = (string) array_get( $q, 'title', '' );
+            $question = (string) array_get( $q, 'question', '' );
+            $points   = (int) array_get( $q, 'points', 0 );
+            $sort_val = (int) array_get( $q, 'sort', $sort++ );
+            $answers  = (array) array_get( $q, 'answers', [] );
+            $correct  = array_get( $q, 'correct', [] );
+            if ( ! is_array( $correct ) ) {
+                $correct = [ $correct ];
+            }
+
+            if ( class_exists( '\WpProQuiz_Model_Question' ) && class_exists( '\WpProQuiz_Model_QuestionMapper' ) && class_exists( '\WpProQuiz_Model_AnswerTypes' ) ) {
+                try {
+                    $qobj = new \WpProQuiz_Model_Question();
+                    $qobj->setQuizId( $pro_id );
+                    $qobj->setTitle( $title );
+                    $qobj->setQuestion( $question );
+                    $qobj->setPoints( $points );
+                    $qobj->setSort( $sort_val );
+                    $qobj->setAnswerType( $type === 'multiple' ? 'multiple' : 'single' );
+
+                    $ans_objs = [];
+                    foreach ( $answers as $idx => $ans ) {
+                        $ao = new \WpProQuiz_Model_AnswerTypes();
+                        $ao->setAnswer( (string) $ans );
+                        $ao->setCorrect( in_array( $idx, $correct ) );
+                        $ao->setPoints( $points );
+                        $ans_objs[] = $ao;
+                    }
+                    $qobj->setAnswerData( $ans_objs );
+
+                    $mapper = new \WpProQuiz_Model_QuestionMapper();
+                    $mapper->save( $qobj );
+                } catch ( \Throwable $e ) {
+                    $this->logger->write( 'question insert failed: ' . $e->getMessage(), [ 'quiz' => $pro_id ] );
+                }
+                continue;
+            }
+
+            // Fallback direct insert if ProQuiz classes unavailable.
+            global $wpdb;
+            $table = $wpdb->prefix . 'wp_pro_quiz_question';
+            $answer_data = [];
+            foreach ( $answers as $idx => $ans ) {
+                $answer_data[] = [
+                    'answer'  => (string) $ans,
+                    'correct' => in_array( $idx, $correct ) ? 1 : 0,
+                    'points'  => $points,
+                ];
+            }
+            $wpdb->insert( $table, [
+                'quiz_id'        => $pro_id,
+                'title'          => $title,
+                'question'       => $question,
+                'points'         => $points,
+                'sort'           => $sort_val,
+                'answer_type'    => $type === 'multiple' ? 'multiple' : 'single',
+                'answer_data'    => maybe_serialize( $answer_data ),
+                'correct_answer' => maybe_serialize( $correct ),
+            ] );
+        }
+    }
+
     /**
      * Creates a WP-Pro-Quiz master-record and links it to the sfwd-quiz post.
      * Works only if ProQuiz is loaded (LD is active).
+     *
+     * @return int Master quiz ID or 0 on failure.
      */
     private function ensure_proquiz_link( $quiz_post_id, $title ) {
         $existing = function_exists( '\learndash_get_setting' )
@@ -655,7 +736,7 @@ class Importer {
             : (int) \get_post_meta( $quiz_post_id, 'ld_pro_quiz', true );
 
         if ( $existing > 0 ) {
-            return true;
+            return $existing;
         }
 
         try {
@@ -671,12 +752,12 @@ class Importer {
                 } else {
                     \update_post_meta( $quiz_post_id, 'ld_pro_quiz', $pro_id );
                 }
-                return true;
+                return $pro_id;
             }
         } catch ( \Throwable $e ) {
             $this->logger->write( 'create proquiz failed: ' . $e->getMessage(), [ 'quiz_post_id' => $quiz_post_id ] );
         }
 
-        return false;
+        return 0;
     }
 }
