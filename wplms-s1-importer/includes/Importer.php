@@ -170,6 +170,12 @@ class Importer {
             \update_option( \WPLMS_S1I_OPT_RUNSTATS, $stats, false );
         }
         $this->logger->write( 'Import finished', $stats );
+        $this->logger->write( sprintf(
+            'Media summary: %d %d %d',
+            array_get( $stats, 'images_downloaded', 0 ),
+            array_get( $stats, 'images_skipped_empty', 0 ),
+            array_get( $stats, 'images_errors', 0 )
+        ) );
         $this->stats_ref = null;
         return $stats;
     }
@@ -572,18 +578,23 @@ class Importer {
 
             \update_post_meta( $new_id, '_wplms_old_id', $old_id );
 
-            try {
-                sideload_featured( array_get( $cert, 'post.featured_image', '' ), $new_id, $this->logger, $this->stats_ref );
-            } catch ( \Throwable $t ) {
-                $this->logger->write( 'featured sideload exception (certificate)', [ 'error' => $t->getMessage() ] );
+            $fimg = array_get( $cert, 'post.featured_image', '' );
+            if ( extract_url( $fimg ) !== '' ) {
+                try {
+                    sideload_featured( $fimg, $new_id, $this->logger, $this->stats_ref );
+                } catch ( \Throwable $t ) {
+                    $this->logger->write( 'featured sideload exception (certificate)', [ 'error' => $t->getMessage() ] );
+                }
+            } else {
+                if ( is_array( $this->stats_ref ) ) {
+                    $this->stats_ref['images_skipped_empty'] = array_get( $this->stats_ref, 'images_skipped_empty', 0 ) + 1;
+                }
             }
 
             $bg_raw = array_get( $cert, 'background_image', array_get( $cert, 'post.background_image', '' ) );
             $bg_url = extract_url( $bg_raw );
             if ( $bg_url !== '' ) {
                 \update_post_meta( $new_id, '_ld_certificate_background_image_url', \esc_url_raw( $bg_url ) );
-            } else {
-                $this->logger->write( 'certificate background skipped: empty URL' );
             }
 
             $this->idmap->set( 'certificates', $old_id, $new_id, $slug );
