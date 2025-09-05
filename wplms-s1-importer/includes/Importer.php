@@ -57,11 +57,17 @@ class Importer {
         $this->stats_ref =& $stats;
 
         // 0) Taxonomies
-        $tax_stats = $this->import_taxonomies( (array) array_get( $payload, 'taxonomies', [] ) );
-        $stats['course_cat_terms_created'] = array_get( $tax_stats, 'course-cat.created', 0 );
-        $stats['course_cat_terms_updated'] = array_get( $tax_stats, 'course-cat.updated', 0 );
-        $stats['course_tag_terms_created'] = array_get( $tax_stats, 'course-tag.created', 0 );
-        $stats['course_tag_terms_updated'] = array_get( $tax_stats, 'course-tag.updated', 0 );
+        $taxonomies = (array) array_get( $payload, 'taxonomies', [] );
+        $has_tax = ! empty( array_get( $taxonomies, 'course-cat', [] ) ) || ! empty( array_get( $taxonomies, 'course-tag', [] ) );
+        $stats['tax_preflight'] = [];
+        if ( $has_tax ) {
+            $stats['tax_preflight'] = $this->ensure_taxonomies( $taxonomies );
+            $tax_stats = $this->import_taxonomies( $taxonomies );
+            $stats['course_cat_terms_created'] = array_get( $tax_stats, 'course-cat.created', 0 );
+            $stats['course_cat_terms_updated'] = array_get( $tax_stats, 'course-cat.updated', 0 );
+            $stats['course_tag_terms_created'] = array_get( $tax_stats, 'course-tag.created', 0 );
+            $stats['course_tag_terms_updated'] = array_get( $tax_stats, 'course-tag.updated', 0 );
+        }
 
         // 1) Courses
         $courses = (array) array_get( $payload, 'courses', [] );
@@ -191,6 +197,10 @@ class Importer {
 
         if ( ! $this->dry_run ) {
             \update_option( \WPLMS_S1I_OPT_RUNSTATS, $stats, false );
+            if ( (int) \get_option( \WPLMS_S1I_OPT_NEED_FLUSH, 0 ) === 1 ) {
+                \flush_rewrite_rules();
+                \update_option( \WPLMS_S1I_OPT_NEED_FLUSH, 0, false );
+            }
         }
         $this->logger->write( 'Import finished', $stats );
         $this->logger->write( sprintf(
@@ -203,6 +213,62 @@ class Importer {
         return $stats;
     }
 
+    private function ensure_taxonomies( array $taxonomies ) {
+        $status = [];
+        $created_any = false;
+
+        $map = [
+            'course-cat' => true,
+            'course-tag' => false,
+        ];
+
+        foreach ( $map as $tax => $hierarchical ) {
+            $terms = (array) array_get( $taxonomies, $tax, [] );
+            if ( ! $terms ) continue;
+
+            if ( ! taxonomy_exists( $tax ) ) {
+                $args = [
+                    'hierarchical'      => $hierarchical,
+                    'public'            => true,
+                    'show_ui'           => true,
+                    'show_in_rest'      => true,
+                    'show_admin_column' => true,
+                    'rewrite'           => [ 'slug' => $tax, 'with_front' => false ],
+                ];
+                if ( $this->dry_run ) {
+                    $this->logger->write( 'DRY: register taxonomy', [ 'taxonomy' => $tax ] );
+                } else {
+                    register_taxonomy( $tax, 'sfwd-courses', $args );
+                }
+                if ( taxonomy_exists( $tax ) ) {
+                    $status[ $tax ] = 'created';
+                    $created_any    = true;
+                } else {
+                    $status[ $tax ] = 'missing';
+                    $this->logger->write( 'taxonomy registration failed', [ 'taxonomy' => $tax ] );
+                    continue;
+                }
+            } else {
+                $status[ $tax ] = 'exists';
+            }
+
+            if ( ! is_object_in_taxonomy( 'sfwd-courses', $tax ) ) {
+                if ( $this->dry_run ) {
+                    $this->logger->write( 'DRY: attach taxonomy to sfwd-courses', [ 'taxonomy' => $tax ] );
+                } else {
+                    register_taxonomy_for_object_type( $tax, 'sfwd-courses' );
+                }
+                $status[ $tax ] = 'attached-to-sfwd-courses';
+            }
+        }
+
+        if ( $created_any && ! $this->dry_run ) {
+            \update_option( \WPLMS_S1I_OPT_NEED_FLUSH, 1, false );
+        }
+
+        return $status;
+    }
+
     private function import_taxonomies( array $taxonomies ) {
         $result = [
             'course-cat' => [ 'created' => 0, 'updated' => 0 ],
@@ -211,7 +277,7 @@ class Importer {
 
         // course-cat with hierarchy
         $cats = (array) array_get( $taxonomies, 'course-cat', [] );
-        if ( $cats ) {
+        if ( $cats && taxonomy_exists( 'course-cat' ) ) {
             usort( $cats, function ( $a, $b ) {
                 return count( (array) array_get( $a, 'path', [] ) ) <=> count( (array) array_get( $b, 'path', [] ) );
             } );
@@ -220,6 +286,26 @@ class Importer {
                 if ( ! $slug ) continue;
                 $name = (string) array_get( $term, 'name', $slug );
                 $parent_slug = normalize_slug( array_get( $term, 'parent_slug', '' ) );
+                if ( $parent_slug && ! isset( $this->term_index['course-cat']['slug'][ $parent_slug ] ) ) {
+                    $p = \get_term_by( 'slug', $parent_slug, 'course-cat' );
+                    if ( $p ) {
+                        $this->term_index['course-cat']['slug'][ $parent_slug ] = (int) $p->term_id;
+                    } else {
+                        if ( $this->dry_run ) {
+                            $this->logger->write( 'DRY: create parent term', [ 'taxonomy' => 'course-cat', 'slug' => $parent_slug ] );
+                            $pid = 0;
+                        } else {
+                            $ins = \wp_insert_term( $parent_slug, 'course-cat', [ 'slug' => $parent_slug ] );
+                            if ( \is_wp_error( $ins ) ) {
+                                $this->logger->write( 'course-cat parent insert failed', [ 'slug' => $parent_slug, 'error' => $ins->get_error_message() ] );
+                                $pid = 0;
+                            } else {
+                                $pid = (int) array_get( $ins, 'term_id', 0 );
+                            }
+                        }
+                        $this->term_index['course-cat']['slug'][ $parent_slug ] = $pid;
+                    }
+                }
                 $parent_id = $parent_slug ? ( $this->term_index['course-cat']['slug'][ $parent_slug ] ?? 0 ) : 0;
 
                 $existing = \get_term_by( 'slug', $slug, 'course-cat' );
@@ -257,50 +343,57 @@ class Importer {
                         }
                     }
                     $this->term_index['course-cat']['slug'][ $slug ] = $term_id;
-                    $this->term_index['course-cat']['id'][ (int) array_get( $term, 'term_id', 0 ) ] = $term_id;
-                    $result['course-cat']['created']++;
-                }
+                $this->term_index['course-cat']['id'][ (int) array_get( $term, 'term_id', 0 ) ] = $term_id;
+                $result['course-cat']['created']++;
             }
+        }
+        if ( $cats && ! taxonomy_exists( 'course-cat' ) ) {
+            $this->logger->write( 'course-cat taxonomy missing', [ 'fatal' => true ] );
         }
 
         // course-tag (flat)
         $tags = (array) array_get( $taxonomies, 'course-tag', [] );
-        foreach ( $tags as $term ) {
-            $slug = normalize_slug( array_get( $term, 'slug', '' ) );
-            if ( ! $slug ) continue;
-            $name = (string) array_get( $term, 'name', $slug );
+        if ( taxonomy_exists( 'course-tag' ) ) {
+            foreach ( $tags as $term ) {
+                $slug = normalize_slug( array_get( $term, 'slug', '' ) );
+                if ( ! $slug ) continue;
+                $name = (string) array_get( $term, 'name', $slug );
 
-            $existing = \get_term_by( 'slug', $slug, 'course-tag' );
-            if ( $existing ) {
-                $term_id = (int) $existing->term_id;
-                $this->term_index['course-tag']['slug'][ $slug ] = $term_id;
-                $this->term_index['course-tag']['id'][ (int) array_get( $term, 'term_id', 0 ) ] = $term_id;
-                if ( $existing->name !== $name ) {
-                    if ( $this->dry_run ) {
-                        $this->logger->write( 'DRY: update term', [ 'taxonomy' => 'course-tag', 'slug' => $slug ] );
-                    } else {
-                        \wp_update_term( $term_id, 'course-tag', [ 'name' => $name ] );
+                $existing = \get_term_by( 'slug', $slug, 'course-tag' );
+                if ( $existing ) {
+                    $term_id = (int) $existing->term_id;
+                    $this->term_index['course-tag']['slug'][ $slug ] = $term_id;
+                    $this->term_index['course-tag']['id'][ (int) array_get( $term, 'term_id', 0 ) ] = $term_id;
+                    if ( $existing->name !== $name ) {
+                        if ( $this->dry_run ) {
+                            $this->logger->write( 'DRY: update term', [ 'taxonomy' => 'course-tag', 'slug' => $slug ] );
+                        } else {
+                            \wp_update_term( $term_id, 'course-tag', [ 'name' => $name ] );
+                        }
+                        $result['course-tag']['updated']++;
                     }
-                    $result['course-tag']['updated']++;
-                }
-            } else {
-                if ( $this->dry_run ) {
-                    $this->logger->write( 'DRY: create term', [ 'taxonomy' => 'course-tag', 'slug' => $slug ] );
-                    $term_id = 0;
                 } else {
-                    $inserted = \wp_insert_term( $name, 'course-tag', [ 'slug' => $slug ] );
-                    if ( \is_wp_error( $inserted ) ) {
-                        $this->logger->write( 'course-tag insert failed', [ 'slug' => $slug, 'error' => $inserted->get_error_message() ] );
+                    if ( $this->dry_run ) {
+                        $this->logger->write( 'DRY: create term', [ 'taxonomy' => 'course-tag', 'slug' => $slug ] );
                         $term_id = 0;
                     } else {
-                        $term_id = (int) array_get( $inserted, 'term_id', 0 );
+                        $inserted = \wp_insert_term( $name, 'course-tag', [ 'slug' => $slug ] );
+                        if ( \is_wp_error( $inserted ) ) {
+                            $this->logger->write( 'course-tag insert failed', [ 'slug' => $slug, 'error' => $inserted->get_error_message() ] );
+                            $term_id = 0;
+                        } else {
+                            $term_id = (int) array_get( $inserted, 'term_id', 0 );
+                        }
                     }
+                    $this->term_index['course-tag']['slug'][ $slug ] = $term_id;
+                    $this->term_index['course-tag']['id'][ (int) array_get( $term, 'term_id', 0 ) ] = $term_id;
+                    $result['course-tag']['created']++;
                 }
-                $this->term_index['course-tag']['slug'][ $slug ] = $term_id;
-                $this->term_index['course-tag']['id'][ (int) array_get( $term, 'term_id', 0 ) ] = $term_id;
-                $result['course-tag']['created']++;
             }
         }
+    } elseif ( $tags ) {
+        $this->logger->write( 'course-tag taxonomy missing', [ 'fatal' => true ] );
+    }
 
         return $result;
     }
@@ -321,10 +414,15 @@ class Importer {
         if ( $cat_ids ) {
             if ( $this->dry_run || $course_id <= 0 ) {
                 $this->logger->write( 'DRY: attach course categories', [ 'course' => $course_id, 'terms' => $cat_ids ] );
+                $attached += count( $cat_ids );
             } else {
-                \wp_set_object_terms( $course_id, $cat_ids, 'course-cat', false );
+                $r = \wp_set_object_terms( $course_id, $cat_ids, 'course-cat', false );
+                if ( \is_wp_error( $r ) ) {
+                    $this->logger->write( 'course-cat attach failed', [ 'course' => $course_id, 'error' => $r->get_error_message() ] );
+                } else {
+                    $attached += count( $cat_ids );
+                }
             }
-            $attached += count( $cat_ids );
         }
 
         $tag_ids = [];
@@ -340,10 +438,15 @@ class Importer {
         if ( $tag_ids ) {
             if ( $this->dry_run || $course_id <= 0 ) {
                 $this->logger->write( 'DRY: attach course tags', [ 'course' => $course_id, 'terms' => $tag_ids ] );
+                $attached += count( $tag_ids );
             } else {
-                \wp_set_object_terms( $course_id, $tag_ids, 'course-tag', false );
+                $r = \wp_set_object_terms( $course_id, $tag_ids, 'course-tag', false );
+                if ( \is_wp_error( $r ) ) {
+                    $this->logger->write( 'course-tag attach failed', [ 'course' => $course_id, 'error' => $r->get_error_message() ] );
+                } else {
+                    $attached += count( $tag_ids );
+                }
             }
-            $attached += count( $tag_ids );
         }
 
         return $attached;
