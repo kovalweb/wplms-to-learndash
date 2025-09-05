@@ -158,8 +158,8 @@ class WPLMS_S1_Exporter {
                 'discovery'   => null,
                 'warnings'    => null,
             ),
-            'taxonomies' => array(),
             'courses' => array(),
+            'taxonomies' => array(),
             'orphans' => array( 'units'=>array(), 'assignments'=>array(), 'quizzes'=>array() ),
         );
 
