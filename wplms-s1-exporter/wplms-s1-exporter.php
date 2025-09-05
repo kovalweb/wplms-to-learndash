@@ -14,8 +14,11 @@ if ( ! class_exists( 'WPLMS_S1_Exporter' ) ) {
 
 class WPLMS_S1_Exporter {
     const MENU_SLUG = 'wplms-s1-exporter';
+    private $plugin_version;
 
     public function __construct() {
+        $data = get_file_data(__FILE__, array('version' => 'Version'));
+        $this->plugin_version = ! empty($data['version']) ? $data['version'] : '';
         add_action('admin_menu', array($this, 'menu'));
         add_action('admin_post_wplms_s1_export_all', array($this, 'handle_export'));
     }
@@ -146,7 +149,7 @@ class WPLMS_S1_Exporter {
             'export_meta' => array(
                 'source'       => 'WPLMS',
                 'exported_at'  => current_time('c'),
-                'version'      => '1.3.0',
+                'version'      => $this->plugin_version,
                 'scope'        => !empty($ids) ? 'selected' : 'all',
                 'selected_ids' => $ids,
                 'limit'        => $limit,
