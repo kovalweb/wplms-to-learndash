@@ -55,6 +55,18 @@ class Admin {
                                 <h1>WPLMS → LearnDash Importer (PoC)</h1>
                                 <p>Version <?php echo \esc_html( \WPLMS_S1I_VER ); ?>. Use this to import the JSON created by WPLMS S1 Exporter.</p>
 
+                                <?php $tax_pf = (array) array_get( $stats, 'tax_preflight', [] ); ?>
+                                <?php if ( $tax_pf ) : ?>
+                                        <h2 class="title">Taxonomy preflight</h2>
+                                        <ul>
+                                                <li>course-cat: <?php echo \esc_html( array_get( $tax_pf, 'course-cat', 'n/a' ) ); ?></li>
+                                                <li>course-tag: <?php echo \esc_html( array_get( $tax_pf, 'course-tag', 'n/a' ) ); ?></li>
+                                        </ul>
+                                        <?php if ( in_array( 'created', $tax_pf, true ) ) : ?>
+                                                <p><em>URLs /course-cat/&lt;slug&gt;/ will become available after the first flush (runs automatically once).</em></p>
+                                        <?php endif; ?>
+                                <?php endif; ?>
+
                                 <?php if ( $repair_summary ) : ?>
                                         <div class="notice notice-success"><p><?php echo \esc_html( 'ProQuiz repair fixed ' . array_get( $repair_summary, 'fixed', 0 ) . ( array_get( $repair_summary, 'ids' ) ? ': ' . implode( ', ', array_map( 'intval', (array) array_get( $repair_summary, 'ids', [] ) ) ) : '' ) ); ?></p></div>
                                 <?php endif; ?>
