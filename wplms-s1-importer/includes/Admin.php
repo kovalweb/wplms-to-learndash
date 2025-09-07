@@ -59,11 +59,12 @@ class Admin {
                                 <?php if ( $tax_pf ) : ?>
                                         <h2 class="title">Taxonomy preflight</h2>
                                         <ul>
-                                                <li>course-cat: <?php echo \esc_html( array_get( $tax_pf, 'course-cat', 'n/a' ) ); ?></li>
-                                                <li>course-tag: <?php echo \esc_html( array_get( $tax_pf, 'course-tag', 'n/a' ) ); ?></li>
+                                                <li>ld_course_category: <?php echo \esc_html( array_get( $tax_pf, 'ld_course_category', 'n/a' ) ); ?></li>
+                                                <li>ld_course_tag: <?php echo \esc_html( array_get( $tax_pf, 'ld_course_tag', 'n/a' ) ); ?></li>
+                                                <li>permalink_base: <?php echo \esc_html( array_get( $tax_pf, 'permalink_base', 'n/a' ) ); ?></li>
                                         </ul>
-                                        <?php if ( in_array( 'created', $tax_pf, true ) ) : ?>
-                                                <p><em>URLs /course-cat/&lt;slug&gt;/ will become available after the first flush (runs automatically once).</em></p>
+                                        <?php if ( array_get( $tax_pf, 'permalink_base' ) !== 'course-cat' ) : ?>
+                                                <p><em>Set LearnDash course category base to "course-cat" for SEO friendly URLs.</em></p>
                                         <?php endif; ?>
                                 <?php endif; ?>
 

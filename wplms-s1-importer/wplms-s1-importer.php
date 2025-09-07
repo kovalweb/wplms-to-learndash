@@ -31,7 +31,6 @@ if ( ! defined( 'WPLMS_S1I_URL' ) ) {
 const WPLMS_S1I_OPT_IDMAP       = 'wplms_s1_map';
 const WPLMS_S1I_OPT_RUNSTATS    = 'wplms_s1i_runstats';
 const WPLMS_S1I_OPT_ENROLL_POOL = 'wplms_s1i_enrollments_pool';
-const WPLMS_S1I_OPT_NEED_FLUSH  = 'wplms_s1i_need_flush';
 
 // Autoload classes and helpers
 require_once WPLMS_S1I_DIR . 'includes/autoload.php';
