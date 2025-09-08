@@ -12,6 +12,7 @@ class Admin {
                         \add_action( 'admin_post_wplms_s1i_orphans_csv', [ $this, 'handle_orphans_csv' ] );
                         \add_action( 'admin_post_wplms_s1i_ld_upgrades', [ $this, 'handle_ld_upgrades' ] );
                         \add_action( 'admin_post_wplms_s1i_cleanup_course_cat', [ $this, 'handle_cleanup_course_cat' ] );
+                        \add_action( 'admin_post_wplms_s1i_dedupe_certificates', [ $this, 'handle_dedupe_certificates' ] );
                 }
 
 		public function menu() {
@@ -51,6 +52,10 @@ class Admin {
                         if ( $cleanup_notice ) {
                                 \delete_transient( 'wplms_s1i_cleanup_course_cat_notice' );
                         }
+                        $dedupe_notice = \get_transient( 'wplms_s1i_dedupe_certificates_notice' );
+                        if ( $dedupe_notice ) {
+                                \delete_transient( 'wplms_s1i_dedupe_certificates_notice' );
+                        }
 
                         $idmap        = new IdMap();
                         $stats_option = \get_option( \WPLMS_S1I_OPT_RUNSTATS, [] );
@@ -68,6 +73,7 @@ class Admin {
                                                 <li>ld_course_category: <?php echo \esc_html( array_get( $tax_pf, 'ld_course_category', 'n/a' ) ); ?></li>
                                                 <li>ld_course_tag: <?php echo \esc_html( array_get( $tax_pf, 'ld_course_tag', 'n/a' ) ); ?></li>
                                                 <li>permalink_base: <?php echo \esc_html( array_get( $tax_pf, 'permalink_base', 'n/a' ) ); ?></li>
+                                                <li>permalink_sample_url: <?php echo \esc_html( array_get( $tax_pf, 'permalink_sample_url', 'n/a' ) ); ?></li>
                                         </ul>
                                         <?php if ( array_get( $tax_pf, 'permalink_base' ) !== 'course-cat' ) : ?>
                                                 <p><em>Set LearnDash course category base to "course-cat" for SEO friendly URLs.</em></p>
@@ -86,6 +92,9 @@ class Admin {
 
                                 <?php if ( $cleanup_notice ) : ?>
                                         <div class="notice notice-success"><p><?php echo \esc_html( $cleanup_notice ); ?></p></div>
+                                <?php endif; ?>
+                                <?php if ( $dedupe_notice ) : ?>
+                                        <div class="notice notice-success"><p><?php echo \esc_html( $dedupe_notice ); ?></p></div>
                                 <?php endif; ?>
 
                                 <?php if ( $report ) : ?>
@@ -153,6 +162,12 @@ class Admin {
                                         <?php \wp_nonce_field( 'wplms_s1i_cleanup_course_cat' ); ?>
                                         <input type="hidden" name="action" value="wplms_s1i_cleanup_course_cat" />
                                         <?php \submit_button( 'Cleanup legacy course-cat', 'secondary' ); ?>
+                                </form>
+
+                                <form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>" style="margin-top:1em;">
+                                        <?php \wp_nonce_field( 'wplms_s1i_dedupe_certificates' ); ?>
+                                        <input type="hidden" name="action" value="wplms_s1i_dedupe_certificates" />
+                                        <?php \submit_button( 'Cleanup duplicate certificates', 'secondary' ); ?>
                                 </form>
 
                                 <h2 class="title">ID Map (summary)<?php echo ( $report && ! empty( $report['dry'] ) ) ? ' <small>(Dry run doesn\'t update ID Map)</small>' : ''; ?></h2>
@@ -322,6 +337,18 @@ class Admin {
 
                         \flush_rewrite_rules();
                         \set_transient( 'wplms_s1i_cleanup_course_cat_notice', 'Legacy course-cat cleaned up.', 60 );
+                        \wp_safe_redirect( \add_query_arg( [ 'page' => $this->page_slug ], \admin_url( 'tools.php' ) ) );
+                        exit;
+                }
+
+                public function handle_dedupe_certificates() {
+                        if ( ! \current_user_can( 'manage_options' ) ) \wp_die( 'Unauthorized' );
+                        \check_admin_referer( 'wplms_s1i_dedupe_certificates' );
+
+                        $idmap   = new IdMap();
+                        $summary = cleanup_duplicate_certificates( $idmap );
+                        $msg = sprintf( 'Duplicate certificates cleanup: groups %d, deleted %d.', (int) array_get( $summary, 'groups', 0 ), (int) array_get( $summary, 'deleted', 0 ) );
+                        \set_transient( 'wplms_s1i_dedupe_certificates_notice', $msg, 60 );
                         \wp_safe_redirect( \add_query_arg( [ 'page' => $this->page_slug ], \admin_url( 'tools.php' ) ) );
                         exit;
                 }

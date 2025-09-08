@@ -220,3 +220,33 @@ function create_proquiz_master( $quiz_post_id, $data = [] ) {
 
     return 0;
 }
+
+function cleanup_duplicate_certificates( IdMap $idmap ) {
+    $posts = \get_posts( [
+        'post_type'      => 'sfwd-certificates',
+        'post_status'    => 'any',
+        'posts_per_page' => -1,
+        'fields'         => 'ids',
+        'meta_key'       => '_wplms_old_id',
+    ] );
+    $groups = [];
+    foreach ( $posts as $pid ) {
+        $old = (int) \get_post_meta( $pid, '_wplms_old_id', true );
+        if ( $old > 0 ) {
+            $groups[ $old ][] = $pid;
+        }
+    }
+    $group_count = count( $groups );
+    $deleted = 0;
+    foreach ( $groups as $old_id => $ids ) {
+        sort( $ids, SORT_NUMERIC );
+        $keep = array_shift( $ids );
+        $slug = \get_post_field( 'post_name', $keep );
+        $idmap->set( 'certificate', $old_id, $keep, $slug );
+        foreach ( $ids as $dup ) {
+            \wp_delete_post( $dup, true );
+            $deleted++;
+        }
+    }
+    return [ 'groups' => $group_count, 'deleted' => $deleted ];
+}
