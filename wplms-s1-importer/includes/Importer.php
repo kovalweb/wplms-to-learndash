@@ -403,12 +403,22 @@ class Importer {
     }
 
     private function import_course( $course ) {
-        $old_id   = (int) array_get( $course, 'old_id', 0 );
+        $old_id = (int) array_get( $course, 'old_id', 0 );
+        $slug   = normalize_slug( array_get( $course, 'current_slug', array_get( $course, 'post.post_name', '' ) ) );
         $existing = $this->idmap->get( 'courses', $old_id );
+        if ( ! $existing && $slug ) {
+            $f = get_posts( [
+                'post_type'      => 'sfwd-courses',
+                'name'           => $slug,
+                'post_status'    => 'any',
+                'numberposts'    => 1,
+                'fields'         => 'ids',
+            ] );
+            if ( $f ) $existing = (int) $f[0];
+        }
 
         $title   = array_get( $course, 'post.post_title', 'Untitled Course' );
         $content = ensure_oembed( array_get( $course, 'post.post_content', '' ), array_get( $course, 'embeds', [] ) );
-        $slug    = normalize_slug( array_get( $course, 'current_slug', array_get( $course, 'post.post_name', '' ) ) );
         $orig_slug = normalize_slug( array_get( $course, 'original_slug', '' ) );
         $status  = strtolower( array_get( $course, 'post.status', 'publish' ) ) === 'publish' ? 'publish' : 'draft';
 
@@ -559,12 +569,22 @@ class Importer {
     }
 
     private function import_lesson( $unit, $course_new_id = 0, $menu_order = 0, $is_orphan = false ) {
-        $old_id   = (int) array_get( $unit, 'old_id', 0 );
+        $old_id = (int) array_get( $unit, 'old_id', 0 );
+        $slug   = normalize_slug( array_get( $unit, 'current_slug', array_get( $unit, 'post.post_name', '' ) ) );
         $existing = $this->idmap->get( 'units', $old_id );
+        if ( ! $existing && $slug ) {
+            $f = get_posts( [
+                'post_type'      => [ 'sfwd-lessons', 'sfwd-topic' ],
+                'name'           => $slug,
+                'post_status'    => 'any',
+                'numberposts'    => 1,
+                'fields'         => 'ids',
+            ] );
+            if ( $f ) $existing = (int) $f[0];
+        }
 
         $title   = array_get( $unit, 'post.post_title', 'Untitled Lesson' );
         $content = ensure_oembed( array_get( $unit, 'post.post_content', '' ), array_get( $unit, 'embeds', [] ) );
-        $slug    = normalize_slug( array_get( $unit, 'current_slug', array_get( $unit, 'post.post_name', '' ) ) );
         $orig_slug = normalize_slug( array_get( $unit, 'original_slug', '' ) );
         $status = strtolower( array_get( $unit, 'post.status', 'publish' ) ) === 'publish' ? 'publish' : 'draft';
 
@@ -646,13 +666,22 @@ class Importer {
     }
 
     private function import_quiz( $quiz, $course_new_id = 0, $is_orphan = false ) {
-        $old_id   = (int) array_get( $quiz, 'old_id', 0 );
+        $old_id = (int) array_get( $quiz, 'old_id', 0 );
+        $slug   = normalize_slug( array_get( $quiz, 'post.post_name', '' ) );
         $existing = $this->idmap->get( 'quizzes', $old_id );
-        if ( $existing ) return true;
+        if ( ! $existing && $slug ) {
+            $f = get_posts( [
+                'post_type'   => 'sfwd-quiz',
+                'name'        => $slug,
+                'post_status' => 'any',
+                'numberposts' => 1,
+                'fields'      => 'ids',
+            ] );
+            if ( $f ) $existing = (int) $f[0];
+        }
 
         $title   = array_get( $quiz, 'post.post_title', 'Untitled Quiz' );
         $content = ensure_oembed( array_get( $quiz, 'post.post_content', '' ), array_get( $quiz, 'embeds', [] ) );
-        $slug    = normalize_slug( array_get( $quiz, 'post.post_name', '' ) );
 
         $args = [
             'post_type'    => 'sfwd-quiz',
@@ -663,53 +692,67 @@ class Importer {
         ];
         if ( $slug ) $args['post_name'] = $slug;
 
-        $new_id = 0;
-
-        if ( $this->dry_run ) {
-            $this->logger->write( 'DRY: create quiz', [ 'title'=>$title, 'course'=>$course_new_id ] );
+        if ( $existing ) {
+            $args['ID'] = $existing;
+            if ( $this->dry_run ) {
+                $this->logger->write( 'DRY: update quiz', [ 'id'=>$existing, 'course'=>$course_new_id ] );
+                return true;
+            }
+            $new_id = \wp_update_post( $args, true );
+            if ( \is_wp_error( $new_id ) ) {
+                $this->logger->write( 'quiz update failed: ' . $new_id->get_error_message(), [ 'old_id'=>$old_id ] );
+                return false;
+            }
+            $created = false;
         } else {
+            if ( $this->dry_run ) {
+                $this->logger->write( 'DRY: create quiz', [ 'title'=>$title, 'course'=>$course_new_id ] );
+                return true;
+            }
             $new_id = \wp_insert_post( $args, true );
             if ( \is_wp_error( $new_id ) ) {
                 $this->logger->write( 'quiz insert failed: ' . $new_id->get_error_message(), [ 'old_id'=>$old_id ] );
                 return false;
             }
-
-            \update_post_meta( $new_id, '_wplms_old_id', $old_id );
-            if ( $course_new_id ) {
-                \update_post_meta( $new_id, 'course_id', (int) $course_new_id );
-            }
-            if ( $is_orphan ) {
-                \update_post_meta( $new_id, '_wplms_orphan', 1 );
-            }
-            $links = (array) array_get( $quiz, 'links', [] );
-            if ( ! empty( $links ) ) { \update_post_meta( $new_id, '_wplms_s1_links', $links ); }
-
-            try {
-                sideload_featured( array_get( $quiz, 'post.featured_image', '' ), $new_id, $this->logger, $this->stats_ref );
-            } catch ( \Throwable $t ) {
-                $this->logger->write( 'featured sideload exception (quiz)', [ 'error' => $t->getMessage() ] );
-            }
-
-            // >>> ProQuiz master record & link (fixes "Missing ProQuiz Associated Settings")
-            $pro_id = $this->ensure_proquiz_link( $new_id, $title );
-
-            // Import questions if provided and ProQuiz master exists.
-            if ( $pro_id ) {
-                $questions = (array) array_get( $quiz, 'questions', [] );
-                if ( $questions ) {
-                    $this->import_quiz_questions( $pro_id, $questions );
-                }
-            }
-
-            $this->idmap->set( 'quizzes', $old_id, $new_id, $slug );
+            $created = true;
         }
 
+        \update_post_meta( $new_id, '_wplms_old_id', $old_id );
+        if ( $course_new_id ) { \update_post_meta( $new_id, 'course_id', (int) $course_new_id ); }
+        if ( $is_orphan ) { \update_post_meta( $new_id, '_wplms_orphan', 1 ); }
+        $links = (array) array_get( $quiz, 'links', [] );
+        if ( ! empty( $links ) ) { \update_post_meta( $new_id, '_wplms_s1_links', $links ); }
+
+        try {
+            sideload_featured( array_get( $quiz, 'post.featured_image', '' ), $new_id, $this->logger, $this->stats_ref );
+        } catch ( \Throwable $t ) {
+            $this->logger->write( 'featured sideload exception (quiz)', [ 'error' => $t->getMessage() ] );
+        }
+
+        $pro_id = $this->ensure_proquiz_link( $new_id, $title );
+        if ( $created && $pro_id ) {
+            $questions = (array) array_get( $quiz, 'questions', [] );
+            if ( $questions ) { $this->import_quiz_questions( $pro_id, $questions ); }
+        }
+
+        $this->idmap->set( 'quizzes', $old_id, $new_id, $slug );
         return true;
     }
 
     private function import_assignment( $assn, $course_new_id = 0, $lesson_new_id = 0, $is_orphan = false ) {
-        $old_id   = (int) array_get( $assn, 'old_id', 0 );
+        $old_id = (int) array_get( $assn, 'old_id', 0 );
+        $slug   = normalize_slug( array_get( $assn, 'post.post_name', '' ) );
         $existing = $this->idmap->get( 'assignments', $old_id );
+        if ( ! $existing && $slug ) {
+            $f = get_posts( [
+                'post_type'   => 'sfwd-assignment',
+                'name'        => $slug,
+                'post_status' => 'any',
+                'numberposts' => 1,
+                'fields'      => 'ids',
+            ] );
+            if ( $f ) $existing = (int) $f[0];
+        }
         $course_old_id = 0;
         $lesson_old_id = 0;
 
@@ -730,7 +773,6 @@ class Importer {
 
         $title   = array_get( $assn, 'post.post_title', 'Assignment' );
         $content = ensure_oembed( array_get( $assn, 'post.post_content', '' ), array_get( $assn, 'embeds', [] ) );
-        $slug    = normalize_slug( array_get( $assn, 'post.post_name', '' ) );
         $status  = strtolower( array_get( $assn, 'post.status', 'publish' ) ) === 'publish' ? 'publish' : 'draft';
 
         $args = [
@@ -765,8 +807,9 @@ class Importer {
                 return false;
             }
             \update_post_meta( $new_id, '_wplms_old_id', $old_id );
-            $this->idmap->set( 'assignments', $old_id, $new_id, $slug );
         }
+
+        $this->idmap->set( 'assignments', $old_id, $new_id, $slug );
 
         \update_post_meta( $new_id, '_wplms_s1_links', [ 'course' => (int) $course_old_id, 'unit' => (int) $lesson_old_id ] );
         if ( $course_new_id ) { \update_post_meta( $new_id, 'course_id', (int) $course_new_id ); }
@@ -781,13 +824,22 @@ class Importer {
     }
 
     private function import_certificate( $cert ) {
-        $old_id   = (int) array_get( $cert, 'old_id', 0 );
+        $old_id = (int) array_get( $cert, 'old_id', 0 );
+        $slug   = normalize_slug( array_get( $cert, 'post.post_name', '' ) );
         $existing = $this->idmap->get( 'certificates', $old_id );
-        if ( $existing ) return true;
+        if ( ! $existing && $slug ) {
+            $f = get_posts( [
+                'post_type'   => 'sfwd-certificates',
+                'name'        => $slug,
+                'post_status' => 'any',
+                'numberposts' => 1,
+                'fields'      => 'ids',
+            ] );
+            if ( $f ) $existing = (int) $f[0];
+        }
 
         $title   = array_get( $cert, 'post.post_title', 'Certificate' );
         $content = array_get( $cert, 'post.post_content', '' );
-        $slug    = normalize_slug( array_get( $cert, 'post.post_name', '' ) );
 
         $args = [
             'post_type'    => 'sfwd-certificates',
@@ -797,38 +849,53 @@ class Importer {
         ];
         if ( $slug ) $args['post_name'] = $slug;
 
-        if ( $this->dry_run ) {
-            $this->logger->write( 'DRY: create certificate', [ 'title'=>$title ] );
+        if ( $existing ) {
+            $args['ID'] = $existing;
+            if ( $this->dry_run ) {
+                $this->logger->write( 'DRY: update certificate', [ 'id'=>$existing ] );
+                return true;
+            }
+            $new_id = \wp_update_post( $args, true );
+            if ( \is_wp_error( $new_id ) ) {
+                $this->logger->write( 'certificate update failed: ' . $new_id->get_error_message(), [ 'old_id'=>$old_id ] );
+                return false;
+            }
+            $created = false;
         } else {
+            if ( $this->dry_run ) {
+                $this->logger->write( 'DRY: create certificate', [ 'title'=>$title ] );
+                return true;
+            }
             $new_id = \wp_insert_post( $args, true );
             if ( \is_wp_error( $new_id ) ) {
                 $this->logger->write( 'certificate insert failed: ' . $new_id->get_error_message(), [ 'old_id'=>$old_id ] );
                 return false;
             }
-
-            \update_post_meta( $new_id, '_wplms_old_id', $old_id );
-
-            $fimg = array_get( $cert, 'post.featured_image', '' );
-            if ( extract_url( $fimg ) !== '' ) {
-                try {
-                    sideload_featured( $fimg, $new_id, $this->logger, $this->stats_ref );
-                } catch ( \Throwable $t ) {
-                    $this->logger->write( 'featured sideload exception (certificate)', [ 'error' => $t->getMessage() ] );
-                }
-            } else {
-                if ( is_array( $this->stats_ref ) ) {
-                    $this->stats_ref['images_skipped_empty'] = array_get( $this->stats_ref, 'images_skipped_empty', 0 ) + 1;
-                }
-            }
-
-            $bg_raw = array_get( $cert, 'background_image', array_get( $cert, 'post.background_image', '' ) );
-            $bg_url = extract_url( $bg_raw );
-            if ( $bg_url !== '' ) {
-                \update_post_meta( $new_id, '_ld_certificate_background_image_url', \esc_url_raw( $bg_url ) );
-            }
-
-            $this->idmap->set( 'certificates', $old_id, $new_id, $slug );
+            $created = true;
         }
+
+        \update_post_meta( $new_id, '_wplms_old_id', $old_id );
+
+        $fimg = array_get( $cert, 'post.featured_image', '' );
+        if ( extract_url( $fimg ) !== '' ) {
+            try {
+                sideload_featured( $fimg, $new_id, $this->logger, $this->stats_ref );
+            } catch ( \Throwable $t ) {
+                $this->logger->write( 'featured sideload exception (certificate)', [ 'error' => $t->getMessage() ] );
+            }
+        } else {
+            if ( is_array( $this->stats_ref ) ) {
+                $this->stats_ref['images_skipped_empty'] = array_get( $this->stats_ref, 'images_skipped_empty', 0 ) + 1;
+            }
+        }
+
+        $bg_raw = array_get( $cert, 'background_image', array_get( $cert, 'post.background_image', '' ) );
+        $bg_url = extract_url( $bg_raw );
+        if ( $bg_url !== '' ) {
+            \update_post_meta( $new_id, '_ld_certificate_background_image_url', \esc_url_raw( $bg_url ) );
+        }
+
+        $this->idmap->set( 'certificates', $old_id, $new_id, $slug );
         return true;
     }
 

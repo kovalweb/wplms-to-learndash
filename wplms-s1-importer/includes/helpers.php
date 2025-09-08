@@ -77,12 +77,43 @@ function sideload_featured( $image, $attach_to_post_id, Logger $logger, ?array &
         return 0;
     }
 
-    // 2) Core хелпери
+    $path     = parse_url( $url, PHP_URL_PATH );
+    $filename = $path ? \wp_basename( $path ) : '';
+
+    // 2) Try reuse existing attachment by source URL or filename
+    $attach_id = 0;
+    $existing = get_posts( [
+        'post_type'      => 'attachment',
+        'posts_per_page' => 1,
+        'post_status'    => 'any',
+        'meta_key'       => '_wplms_source_url',
+        'meta_value'     => $url,
+        'fields'         => 'ids',
+    ] );
+    if ( $existing ) {
+        $attach_id = (int) $existing[0];
+    } elseif ( $filename ) {
+        $existing = get_posts( [
+            'post_type'      => 'attachment',
+            'posts_per_page' => 1,
+            'post_status'    => 'any',
+            'fields'         => 'ids',
+            'meta_query'     => [ [ 'key' => '_wp_attached_file', 'value' => $filename, 'compare' => 'LIKE' ] ],
+        ] );
+        if ( $existing ) {
+            $attach_id = (int) $existing[0];
+        }
+    }
+    if ( $attach_id ) {
+        \set_post_thumbnail( $attach_to_post_id, $attach_id );
+        return $attach_id;
+    }
+
+    // 3) Core helpers for download
     require_once ABSPATH . 'wp-admin/includes/file.php';
     require_once ABSPATH . 'wp-admin/includes/media.php';
     require_once ABSPATH . 'wp-admin/includes/image.php';
 
-    // 3) Завантаження з м’яким обробленням помилок
     $timeout = 60;
     try {
         $tmp = \download_url( $url, $timeout );
@@ -102,8 +133,7 @@ function sideload_featured( $image, $attach_to_post_id, Logger $logger, ?array &
         return 0;
     }
 
-    $path     = parse_url( $url, PHP_URL_PATH );
-    $filename = $path ? \wp_basename( $path ) : 'remote-file';
+    $filename = $filename ?: ( $path ? \wp_basename( $path ) : 'remote-file' );
 
     $file     = [
         'name'     => $filename ?: 'remote-file',
@@ -132,6 +162,7 @@ function sideload_featured( $image, $attach_to_post_id, Logger $logger, ?array &
     if ( ! \is_wp_error( $attach_id ) ) {
         \wp_update_attachment_metadata( $attach_id, \wp_generate_attachment_metadata( $attach_id, $results['file'] ) );
         \set_post_thumbnail( $attach_to_post_id, $attach_id );
+        \update_post_meta( $attach_id, '_wplms_source_url', $url );
         if ( is_array( $stats ) ) {
             $stats['images_downloaded'] = array_get( $stats, 'images_downloaded', 0 ) + 1;
         }
