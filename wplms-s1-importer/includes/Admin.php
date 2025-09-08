@@ -11,6 +11,7 @@ class Admin {
                         \add_action( 'admin_post_wplms_s1i_attach_orphans', [ $this, 'handle_attach_orphans' ] );
                         \add_action( 'admin_post_wplms_s1i_orphans_csv', [ $this, 'handle_orphans_csv' ] );
                         \add_action( 'admin_post_wplms_s1i_ld_upgrades', [ $this, 'handle_ld_upgrades' ] );
+                        \add_action( 'admin_post_wplms_s1i_cleanup_course_cat', [ $this, 'handle_cleanup_course_cat' ] );
                 }
 
 		public function menu() {
@@ -46,6 +47,11 @@ class Admin {
                                 \delete_transient( 'wplms_s1i_ld_upgrades_notice' );
                         }
 
+                        $cleanup_notice = \get_transient( 'wplms_s1i_cleanup_course_cat_notice' );
+                        if ( $cleanup_notice ) {
+                                \delete_transient( 'wplms_s1i_cleanup_course_cat_notice' );
+                        }
+
                         $idmap        = new IdMap();
                         $stats_option = \get_option( \WPLMS_S1I_OPT_RUNSTATS, [] );
                         $en_pool      = \get_option( \WPLMS_S1I_OPT_ENROLL_POOL, [] );
@@ -76,6 +82,10 @@ class Admin {
                                 <?php endif; ?>
                                 <?php if ( $ldu_notice ) : ?>
                                         <div class="notice notice-info"><p><?php echo \esc_html( $ldu_notice ); ?></p></div>
+                                <?php endif; ?>
+
+                                <?php if ( $cleanup_notice ) : ?>
+                                        <div class="notice notice-success"><p><?php echo \esc_html( $cleanup_notice ); ?></p></div>
                                 <?php endif; ?>
 
                                 <?php if ( $report ) : ?>
@@ -137,6 +147,12 @@ class Admin {
                                         <?php \wp_nonce_field( 'wplms_s1i_orphans_csv' ); ?>
                                         <input type="hidden" name="action" value="wplms_s1i_orphans_csv" />
                                         <?php \submit_button( 'Export Orphans CSV', 'secondary' ); ?>
+                                </form>
+
+                                <form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>" style="margin-top:1em;">
+                                        <?php \wp_nonce_field( 'wplms_s1i_cleanup_course_cat' ); ?>
+                                        <input type="hidden" name="action" value="wplms_s1i_cleanup_course_cat" />
+                                        <?php \submit_button( 'Cleanup legacy course-cat', 'secondary' ); ?>
                                 </form>
 
                                 <h2 class="title">ID Map (summary)<?php echo ( $report && ! empty( $report['dry'] ) ) ? ' <small>(Dry run doesn\'t update ID Map)</small>' : ''; ?></h2>
@@ -285,6 +301,28 @@ class Admin {
                         }
 
                         \wp_safe_redirect( $url );
+                        exit;
+                }
+
+                public function handle_cleanup_course_cat() {
+                        if ( ! \current_user_can( 'manage_options' ) ) \wp_die( 'Unauthorized' );
+                        \check_admin_referer( 'wplms_s1i_cleanup_course_cat' );
+
+                        if ( \taxonomy_exists( 'course-cat' ) ) {
+                                $terms = \get_terms( [ 'taxonomy' => 'course-cat', 'hide_empty' => false ] );
+                                if ( ! \is_wp_error( $terms ) ) {
+                                        foreach ( $terms as $term ) {
+                                                \wp_delete_term( $term->term_id, 'course-cat' );
+                                        }
+                                }
+                                if ( function_exists( 'unregister_taxonomy' ) ) {
+                                        \unregister_taxonomy( 'course-cat' );
+                                }
+                        }
+
+                        \flush_rewrite_rules();
+                        \set_transient( 'wplms_s1i_cleanup_course_cat_notice', 'Legacy course-cat cleaned up.', 60 );
+                        \wp_safe_redirect( \add_query_arg( [ 'page' => $this->page_slug ], \admin_url( 'tools.php' ) ) );
                         exit;
                 }
 
