@@ -53,6 +53,88 @@ function extract_url( $value ) {
 }
 
 /**
+ * Resolve LearnDash course category base (ld_course_category) robustly.
+ * Tries option, settings sections, then derives from a sample term URL.
+ *
+ * @return array{base:string, source:string, sample_url:string}
+ */
+function hv_ld_get_course_category_base(): array {
+    $base       = '';
+    $source     = 'unknown';
+    $sample_url = '';
+
+    // 1) Try common option
+    $opt = \get_option( 'learndash_settings_permalinks' );
+    if ( is_array( $opt ) ) {
+        if ( ! empty( $opt['course_category_base'] ) ) {
+            $base   = (string) $opt['course_category_base'];
+            $source = 'option:learndash_settings_permalinks.course_category_base';
+        } elseif ( ! empty( $opt['course_category'] ) ) {
+            $base   = (string) $opt['course_category'];
+            $source = 'option:learndash_settings_permalinks.course_category';
+        }
+    }
+
+    // 2) Try settings sections (varies by LD versions)
+    if ( $base === '' && class_exists( 'LearnDash_Settings_Section' ) ) {
+        try {
+            if ( method_exists( 'LearnDash_Settings_Section', 'get_section_settings_all' ) ) {
+                $sections = \LearnDash_Settings_Section::get_section_settings_all();
+                foreach ( (array) $sections as $section_settings ) {
+                    if ( ! is_array( $section_settings ) ) continue;
+                    if ( ! empty( $section_settings['course_category_base'] ) ) {
+                        $base   = (string) $section_settings['course_category_base'];
+                        $source = 'settings_section:course_category_base';
+                        break;
+                    }
+                    if ( ! empty( $section_settings['course_category'] ) ) {
+                        $base   = (string) $section_settings['course_category'];
+                        $source = 'settings_section:course_category';
+                        break;
+                    }
+                }
+            }
+        } catch ( \Throwable $e ) {
+            // ignore
+        }
+    }
+
+    // 3) Fallback: derive from a sample term URL
+    $terms = \get_terms( [
+        'taxonomy'   => 'ld_course_category',
+        'number'     => 1,
+        'hide_empty' => false,
+        'fields'     => 'all',
+    ] );
+
+    if ( ! \is_wp_error( $terms ) && ! empty( $terms ) ) {
+        $sample_url = \get_term_link( $terms[0], 'ld_course_category' );
+        if ( is_string( $sample_url ) && $sample_url !== '' ) {
+            $path  = \wp_parse_url( $sample_url, PHP_URL_PATH );
+            $path  = trim( (string) $path, '/' );
+            $parts = array_values( array_filter( explode( '/', $path ) ) );
+            // Expect .../<base>/<term-slug>
+            if ( count( $parts ) >= 2 ) {
+                $derived_base = $parts[ count( $parts ) - 2 ];
+                if ( $base === '' ) {
+                    $base   = $derived_base;
+                    $source = 'derived_from_url';
+                } elseif ( $base !== $derived_base ) {
+                    // keep mismatch info for debugging
+                    $source .= '|mismatch:derived=' . $derived_base;
+                }
+            }
+        }
+    }
+
+    return [
+        'base'       => (string) $base,
+        'source'     => (string) $source,
+        'sample_url' => (string) $sample_url,
+    ];
+}
+
+/**
  * Sideload featured image.
  * $image може бути рядком URL або масивом (url/source_url/guid/src).
  * На помилках не кидаємо фатал — пишемо в лог і повертаємо 0.

@@ -222,21 +222,15 @@ class Importer {
         $status['ld_course_category'] = taxonomy_exists( 'ld_course_category' ) ? 'exists' : 'missing';
         $status['ld_course_tag']      = taxonomy_exists( 'ld_course_tag' ) ? 'exists' : 'missing';
 
-        $permalinks = (array) \get_option( 'learndash_settings_permalinks', [] );
-        $base       = '';
-        if ( is_array( $permalinks ) ) {
-            $base = array_get( $permalinks, 'course_category_base', array_get( $permalinks, 'course_category', '' ) );
+        if ( defined( 'WPLMS_S1_IMPORTER_DEBUG_FLUSH' ) && WPLMS_S1_IMPORTER_DEBUG_FLUSH ) {
+            \flush_rewrite_rules( false );
         }
-        $terms = \get_terms( [ 'taxonomy' => 'ld_course_category', 'number' => 1, 'hide_empty' => false ] );
-        $sample_url = '';
-        if ( ! \is_wp_error( $terms ) && $terms ) {
-            $link = \get_term_link( $terms[0] );
-            if ( ! \is_wp_error( $link ) ) {
-                $sample_url = $link;
-            }
-        }
-        $status['permalink_base']        = $base;
-        $status['permalink_sample_url']  = $sample_url;
+
+        $perm = hv_ld_get_course_category_base();
+
+        $status['permalink_base']        = $perm['base'];
+        $status['permalink_base_source'] = $perm['source'];
+        $status['permalink_sample_url']  = $perm['sample_url'];
 
         return $status;
     }
