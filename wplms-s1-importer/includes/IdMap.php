@@ -6,12 +6,16 @@ class IdMap {
 
     public function __construct() {
         $this->map = \get_option( \WPLMS_S1I_OPT_IDMAP, [
-            'courses'      => [],
-            'units'        => [], // mapped to Lessons in LearnDash
-            'quizzes'      => [],
-            'assignments'  => [],
-            'certificates' => [],
+            'courses'     => [],
+            'units'       => [], // mapped to Lessons in LearnDash
+            'quizzes'     => [],
+            'assignments' => [],
+            'certificate' => [],
         ] );
+        if ( isset( $this->map['certificates'] ) && ! isset( $this->map['certificate'] ) ) {
+            $this->map['certificate'] = $this->map['certificates'];
+            unset( $this->map['certificates'] );
+        }
     }
 
     public function get_all() { return $this->map; }
@@ -35,7 +39,7 @@ class IdMap {
     }
 
     public function reset() {
-        $this->map = [ 'courses'=>[], 'units'=>[], 'quizzes'=>[], 'assignments'=>[], 'certificates'=>[] ];
+        $this->map = [ 'courses'=>[], 'units'=>[], 'quizzes'=>[], 'assignments'=>[], 'certificate'=>[] ];
         \update_option( \WPLMS_S1I_OPT_IDMAP, $this->map, false );
     }
 }

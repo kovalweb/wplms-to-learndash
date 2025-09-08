@@ -32,7 +32,8 @@ class Importer {
             'lessons_updated'       => 0,
             'quizzes'               => 0,
             'assignments'           => 0,
-            'certificates'          => 0,
+            'certificates_created'  => 0,
+            'certificates_updated'  => 0,
             'orphans_units'         => 0,
             'orphans_quizzes'       => 0,
             'orphans_assignments'   => 0,
@@ -119,8 +120,15 @@ class Importer {
                     // certificates
                     $certs = (array) array_get( $course, 'certificates', [] );
                     foreach ( $certs as $cert ) {
-                        $ok = $this->import_certificate( $cert );
-                        if ( $ok ) $stats['certificates']++;
+                        $cinfo = $this->import_certificate( $cert );
+                        $cid_cert = (int) array_get( $cinfo, 'id', 0 );
+                        if ( $cid_cert ) {
+                            if ( array_get( $cinfo, 'created' ) ) {
+                                $stats['certificates_created']++;
+                            } else {
+                                $stats['certificates_updated']++;
+                            }
+                        }
                     }
 
                     // attach certificate to course
@@ -215,11 +223,20 @@ class Importer {
         $status['ld_course_tag']      = taxonomy_exists( 'ld_course_tag' ) ? 'exists' : 'missing';
 
         $permalinks = (array) \get_option( 'learndash_settings_permalinks', [] );
-        $base       = array_get( $permalinks, 'course_cat_base', '' );
-        if ( $base === '' ) {
-            $base = array_get( $permalinks, 'course_category_base', '' );
+        $base       = '';
+        if ( is_array( $permalinks ) ) {
+            $base = array_get( $permalinks, 'course_category_base', array_get( $permalinks, 'course_category', '' ) );
         }
-        $status['permalink_base'] = $base;
+        $terms = \get_terms( [ 'taxonomy' => 'ld_course_category', 'number' => 1, 'hide_empty' => false ] );
+        $sample_url = '';
+        if ( ! \is_wp_error( $terms ) && $terms ) {
+            $link = \get_term_link( $terms[0] );
+            if ( ! \is_wp_error( $link ) ) {
+                $sample_url = $link;
+            }
+        }
+        $status['permalink_base']        = $base;
+        $status['permalink_sample_url']  = $sample_url;
 
         return $status;
     }
@@ -826,14 +843,22 @@ class Importer {
     private function import_certificate( $cert ) {
         $old_id = (int) array_get( $cert, 'old_id', 0 );
         $slug   = normalize_slug( array_get( $cert, 'post.post_name', '' ) );
-        $existing = $this->idmap->get( 'certificates', $old_id );
-        if ( ! $existing && $slug ) {
+        if ( ! $slug ) {
+            $slug = normalize_slug( array_get( $cert, 'post.post_title', '' ) );
+        }
+        if ( ! $slug ) {
+            $slug = 'certificate-' . $old_id;
+        }
+
+        $existing = $this->idmap->get( 'certificate', $old_id );
+        if ( ! $existing ) {
             $f = get_posts( [
                 'post_type'   => 'sfwd-certificates',
-                'name'        => $slug,
                 'post_status' => 'any',
                 'numberposts' => 1,
                 'fields'      => 'ids',
+                'meta_key'    => '_wplms_old_id',
+                'meta_value'  => $old_id,
             ] );
             if ( $f ) $existing = (int) $f[0];
         }
@@ -846,30 +871,30 @@ class Importer {
             'post_status'  => 'publish',
             'post_title'   => $title,
             'post_content' => $content,
+            'post_name'    => $slug,
         ];
-        if ( $slug ) $args['post_name'] = $slug;
 
         if ( $existing ) {
             $args['ID'] = $existing;
             if ( $this->dry_run ) {
-                $this->logger->write( 'DRY: update certificate', [ 'id'=>$existing ] );
-                return true;
+                $this->logger->write( 'DRY: update certificate', [ 'id' => $existing ] );
+                return [ 'id' => $existing, 'created' => false ];
             }
             $new_id = \wp_update_post( $args, true );
             if ( \is_wp_error( $new_id ) ) {
-                $this->logger->write( 'certificate update failed: ' . $new_id->get_error_message(), [ 'old_id'=>$old_id ] );
-                return false;
+                $this->logger->write( 'certificate update failed: ' . $new_id->get_error_message(), [ 'old_id' => $old_id ] );
+                return [ 'id' => 0, 'created' => false ];
             }
             $created = false;
         } else {
             if ( $this->dry_run ) {
-                $this->logger->write( 'DRY: create certificate', [ 'title'=>$title ] );
-                return true;
+                $this->logger->write( 'DRY: create certificate', [ 'title' => $title ] );
+                return [ 'id' => 0, 'created' => true ];
             }
             $new_id = \wp_insert_post( $args, true );
             if ( \is_wp_error( $new_id ) ) {
-                $this->logger->write( 'certificate insert failed: ' . $new_id->get_error_message(), [ 'old_id'=>$old_id ] );
-                return false;
+                $this->logger->write( 'certificate insert failed: ' . $new_id->get_error_message(), [ 'old_id' => $old_id ] );
+                return [ 'id' => 0, 'created' => false ];
             }
             $created = true;
         }
@@ -895,8 +920,9 @@ class Importer {
             \update_post_meta( $new_id, '_ld_certificate_background_image_url', \esc_url_raw( $bg_url ) );
         }
 
-        $this->idmap->set( 'certificates', $old_id, $new_id, $slug );
-        return true;
+        $this->idmap->set( 'certificate', $old_id, $new_id, $slug );
+
+        return [ 'id' => $new_id, 'created' => $created ];
     }
 
     private function attach_course_certificate( $course, $course_new_id ) {
@@ -909,7 +935,7 @@ class Importer {
         if ( $cert_old_id <= 0 ) {
             return;
         }
-        $cert_new_id = (int) $this->idmap->get( 'certificates', $cert_old_id );
+        $cert_new_id = (int) $this->idmap->get( 'certificate', $cert_old_id );
         $log = [
             'course_old_id' => $course_old_id,
             'course_new_id' => $course_new_id,

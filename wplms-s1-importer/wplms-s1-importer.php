@@ -102,5 +102,12 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
             }
         }
     } );
+    \WP_CLI::add_command( 'wplms2ld', new class {
+        public function dedupe_certificates() {
+            $idmap   = new \WPLMS_S1I\IdMap();
+            $summary = \WPLMS_S1I\cleanup_duplicate_certificates( $idmap );
+            \WP_CLI::success( sprintf( 'Groups: %d, deleted: %d', (int) \WPLMS_S1I\array_get( $summary, 'groups', 0 ), (int) \WPLMS_S1I\array_get( $summary, 'deleted', 0 ) ) );
+        }
+    } );
 }
 
