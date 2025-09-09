@@ -53,6 +53,9 @@ class Importer {
             'course_tag_terms_created' => 0,
             'course_tag_terms_updated' => 0,
             'course_terms_attached'   => 0,
+            'courses_linked_to_products' => 0,
+            'linked_publish'          => 0,
+            'linked_draft'            => 0,
         ];
 
         $this->stats_ref =& $stats;
@@ -554,6 +557,81 @@ class Importer {
             } else {
                 \delete_post_meta( $new_id, 'course_price' );
             }
+        }
+
+        // Link to WooCommerce product
+        $sku        = array_get( $course, 'commerce.product_sku', '' );
+        $product_id = 0;
+        $weak_match = false;
+
+        if ( $sku && function_exists( 'wc_get_product_id_by_sku' ) ) {
+            $product_id = (int) \wc_get_product_id_by_sku( $sku );
+        }
+        if ( ! $product_id ) {
+            $old_pid = (int) array_get( $course, 'meta.product_id', 0 );
+            if ( $old_pid ) {
+                $found = \get_posts( [
+                    'post_type'   => 'product',
+                    'post_status' => 'any',
+                    'meta_key'    => '_wplms_old_product_id',
+                    'meta_value'  => $old_pid,
+                    'fields'      => 'ids',
+                    'numberposts' => 1,
+                ] );
+                if ( $found ) {
+                    $product_id = (int) $found[0];
+                }
+            }
+        }
+        if ( ! $product_id ) {
+            if ( $slug ) {
+                $found = \get_posts( [
+                    'post_type'   => 'product',
+                    'post_status' => 'any',
+                    'name'        => $slug,
+                    'fields'      => 'ids',
+                    'numberposts' => 1,
+                ] );
+                if ( $found ) {
+                    $product_id = (int) $found[0];
+                    $weak_match = true;
+                }
+            }
+            if ( ! $product_id && $title ) {
+                $page = \get_page_by_title( $title, OBJECT, 'product' );
+                if ( $page ) {
+                    $product_id = (int) $page->ID;
+                    $weak_match = true;
+                }
+            }
+            if ( $weak_match && $product_id ) {
+                $this->logger->write( 'weak_match_by_title', [ 'course' => $new_id, 'product' => $product_id ] );
+            }
+        }
+
+        if ( $product_id ) {
+            $old_access_mode = \get_post_meta( $new_id, 'ld_course_access_mode', true );
+            hv_ld_link_course_to_product( $new_id, $product_id );
+            if ( $old_access_mode !== '' ) {
+                \update_post_meta( $new_id, 'ld_course_access_mode', $old_access_mode );
+            } else {
+                \delete_post_meta( $new_id, 'ld_course_access_mode' );
+            }
+            if ( is_array( $this->stats_ref ) ) {
+                $this->stats_ref['courses_linked_to_products'] = array_get( $this->stats_ref, 'courses_linked_to_products', 0 ) + 1;
+                if ( \get_post_status( $product_id ) === 'publish' ) {
+                    $this->stats_ref['linked_publish'] = array_get( $this->stats_ref, 'linked_publish', 0 ) + 1;
+                } else {
+                    $this->stats_ref['linked_draft'] = array_get( $this->stats_ref, 'linked_draft', 0 ) + 1;
+                }
+            }
+        } else {
+            $this->logger->write( 'product_not_found_for_course', [
+                'course_id'      => $new_id,
+                'course_slug'    => $slug,
+                'sku'            => $sku,
+                'old_product_id' => (int) array_get( $course, 'meta.product_id', 0 ),
+            ] );
         }
 
         // service meta

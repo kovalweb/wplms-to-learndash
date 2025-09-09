@@ -135,6 +135,22 @@ function hv_ld_get_course_category_base(): array {
 }
 
 /**
+ * Link a LearnDash course to a WooCommerce product (soft).
+ *
+ * Updates simple meta references on both objects. No validation is performed
+ * beyond ensuring the IDs are positive integers.
+ */
+function hv_ld_link_course_to_product( $course_id, $product_id ) {
+    $course_id  = (int) $course_id;
+    $product_id = (int) $product_id;
+    if ( $course_id <= 0 || $product_id <= 0 ) {
+        return;
+    }
+    \update_post_meta( $course_id, 'ld_product_id', $product_id );
+    \update_post_meta( $product_id, 'ld_course_id', $course_id );
+}
+
+/**
  * Sideload featured image.
  * $image може бути рядком URL або масивом (url/source_url/guid/src).
  * На помилках не кидаємо фатал — пишемо в лог і повертаємо 0.
