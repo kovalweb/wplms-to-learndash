@@ -369,56 +369,85 @@ class WPLMS_S1_Exporter {
         $subscription_period = null;
         $subscription_interval = null;
         $renewal_enabled = false;
+        $product_sku = null;
+        $product_old_id = null;
 
-        if ( ! empty($vibe['vibe_product']) ) {
-            $product_id = is_array($vibe['vibe_product']) ? intval(reset($vibe['vibe_product'])) : intval($vibe['vibe_product']);
-            if ( $product_id ) {
-                $has_product = true;
-                $product_status = get_post_status( $product_id );
+        $raw_ids = array();
+        if ( ! empty( $vibe['vibe_product'] ) ) {
+            $raw_ids = is_array( $vibe['vibe_product'] ) ? $vibe['vibe_product'] : array( $vibe['vibe_product'] );
+        }
+        $product_ids = array_values( array_filter( array_map( 'intval', $raw_ids ) ) );
+        if ( ! empty( $product_ids ) ) {
+            $product_id = $product_ids[0];
+            if ( count( $product_ids ) > 1 ) {
+                $warnings[] = 'Course ' . $course->ID . ' linked to multiple products: ' . implode( ',', $product_ids ) . '; using ' . $product_id;
+                if ( ! isset( $analysis['stats']['multi_product'] ) ) $analysis['stats']['multi_product'] = 0;
+                $analysis['stats']['multi_product']++;
+            }
+            $has_product = true;
+            $product_status = get_post_status( $product_id );
+            if ( ! $product_status ) {
+                $warnings[] = 'Linked product ' . $product_id . ' for course ' . $course->ID . ' not found';
+                if ( ! isset( $analysis['stats']['missing_product'] ) ) $analysis['stats']['missing_product'] = 0;
+                $analysis['stats']['missing_product']++;
+            }
 
-                $regular_price = get_post_meta($product_id, '_regular_price', true);
-                $sale_price    = get_post_meta($product_id, '_sale_price', true);
-                $price         = get_post_meta($product_id, '_price', true);
-                if (!is_numeric($regular_price)) $regular_price = null; else $regular_price = (float)$regular_price;
-                if (!is_numeric($sale_price))    $sale_price    = null; else $sale_price = (float)$sale_price;
-                if (!is_numeric($price))         $price         = null; else $price = (float)$price;
+            $product_sku = get_post_meta( $product_id, '_sku', true );
+            $product_old_id = get_post_meta( $product_id, '_wplms_old_product_id', true );
+            if ( $product_old_id === '' ) $product_old_id = null;
 
-                $terms = get_the_terms( $product_id, 'product_visibility' );
-                if ( is_array( $terms ) ) {
-                    foreach ( $terms as $t ) {
-                        $product_visibility_terms[] = $t->slug;
+            $regular_price = get_post_meta( $product_id, '_regular_price', true );
+            $sale_price    = get_post_meta( $product_id, '_sale_price', true );
+            $price         = get_post_meta( $product_id, '_price', true );
+            if ( ! is_numeric( $regular_price ) ) $regular_price = null; else $regular_price = (float) $regular_price;
+            if ( ! is_numeric( $sale_price ) )    $sale_price    = null; else $sale_price = (float) $sale_price;
+            if ( ! is_numeric( $price ) )         $price         = null; else $price = (float) $price;
+
+            $terms = get_the_terms( $product_id, 'product_visibility' );
+            if ( is_array( $terms ) ) {
+                foreach ( $terms as $t ) {
+                    $product_visibility_terms[] = $t->slug;
+                }
+            }
+            if ( in_array( 'exclude-from-catalog', $product_visibility_terms, true ) || in_array( 'exclude-from-search', $product_visibility_terms, true ) ) {
+                $product_catalog_visibility = 'hidden';
+            } else {
+                $product_catalog_visibility = 'visible';
+            }
+
+            if ( function_exists( 'wc_get_product' ) ) {
+                $wc_product = wc_get_product( $product_id );
+                if ( $wc_product ) {
+                    if ( method_exists( $wc_product, 'get_type' ) ) $product_type = $wc_product->get_type();
+                    if ( $wc_product->is_type( 'subscription' ) ) {
+                        $renewal_enabled = true;
+                        $sub_price = get_post_meta( $product_id, '_subscription_price', true );
+                        if ( is_numeric( $sub_price ) ) $subscription_price = (float) $sub_price;
+                        $sub_period = get_post_meta( $product_id, '_subscription_period', true );
+                        if ( ! empty( $sub_period ) ) $subscription_period = $sub_period;
+                        $sub_interval = get_post_meta( $product_id, '_subscription_period_interval', true );
+                        if ( is_numeric( $sub_interval ) ) $subscription_interval = (int) $sub_interval;
+                        $analysis['stats']['subscriptions']++;
                     }
                 }
-                if ( in_array( 'exclude-from-catalog', $product_visibility_terms, true ) || in_array( 'exclude-from-search', $product_visibility_terms, true ) ) {
-                    $product_catalog_visibility = 'hidden';
-                } else {
-                    $product_catalog_visibility = 'visible';
-                }
-
-                if ( function_exists('wc_get_product') ) {
-                    $wc_product = wc_get_product($product_id);
-                    if ($wc_product) {
-                        if (method_exists($wc_product,'get_type')) $product_type = $wc_product->get_type();
-                        if ($wc_product->is_type('subscription')) {
-                            $renewal_enabled = true;
-                            $sub_price = get_post_meta($product_id, '_subscription_price', true);
-                            if (is_numeric($sub_price)) $subscription_price = (float)$sub_price;
-                            $sub_period = get_post_meta($product_id, '_subscription_period', true);
-                            if (!empty($sub_period)) $subscription_period = $sub_period;
-                            $sub_interval = get_post_meta($product_id, '_subscription_period_interval', true);
-                            if (is_numeric($sub_interval)) $subscription_interval = (int)$sub_interval;
-                            $analysis['stats']['subscriptions']++;
-                        }
-                    }
-                }
-                $analysis['products'][] = array(
-                    'course_id' => (int)$course->ID,
-                    'product_id' => $product_id,
-                    'post_status' => $product_status,
-                    'terms' => $product_visibility_terms,
-                );
+            }
+        } else {
+            if ( ! empty( $vibe['vibe_product'] ) ) {
+                $warnings[] = 'Course ' . $course->ID . ' has product meta but no valid product ID';
+                if ( ! isset( $analysis['stats']['missing_product'] ) ) $analysis['stats']['missing_product'] = 0;
+                $analysis['stats']['missing_product']++;
             }
         }
+
+        $analysis_entry = array(
+            'course_id'   => (int) $course->ID,
+            'product_id'  => $product_id,
+            'post_status' => $product_status,
+            'terms'       => $product_visibility_terms,
+        );
+        if ( count( $product_ids ) > 1 ) $analysis_entry['multiple'] = true;
+        if ( ! $product_id || ! $product_status ) $analysis_entry['missing'] = true;
+        $analysis['products'][] = $analysis_entry;
 
         // subscription flags without WC product
         if ( !$renewal_enabled ) {
@@ -719,6 +748,14 @@ class WPLMS_S1_Exporter {
             'enrollments'    => $enrollments,
             'media'          => $media,
         );
+        $commerce = array(
+            'product_sku'    => $product_sku,
+            'product_status' => $product_status,
+        );
+        if ( $product_old_id !== null ) {
+            $commerce['product_old_id'] = $product_old_id;
+        }
+        $course_entry['commerce'] = $commerce;
         if ( $include_raw_meta ) {
             $course_entry['meta']['raw'] = $raw_meta;
         }
