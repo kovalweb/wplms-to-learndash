@@ -177,6 +177,7 @@ class WPLMS_S1_Exporter {
             'with_cta'              => array(),
             'courses_without_duration' => array(),
             'lessons_without_duration' => array(),
+            'lessons_missing_in_export' => array(),
             'products'             => array(),
             'stats' => array(
                 'total_courses'             => count($courses),
@@ -290,6 +291,18 @@ class WPLMS_S1_Exporter {
         // add orphans to analysis and finalize meta stats
         $analysis['orphans'] = $export['orphans'];
         $export['analysis'] = $analysis;
+
+        if ( ! empty( $analysis['lessons_missing_in_export'] ) ) {
+            $csv_path = __DIR__ . '/lessons_missing_in_export.csv';
+            $fh = fopen( $csv_path, 'w' );
+            if ( $fh ) {
+                fputcsv( $fh, array( 'lesson_id', 'course_id', 'reason', 'status' ) );
+                foreach ( $analysis['lessons_missing_in_export'] as $row ) {
+                    fputcsv( $fh, array( $row['id'], $row['course_id'], $row['reason'], $row['status'] ) );
+                }
+                fclose( $fh );
+            }
+        }
 
         $export['export_meta']['stats']     = $stats;
         $export['export_meta']['discovery'] = $discovery;
@@ -600,14 +613,18 @@ class WPLMS_S1_Exporter {
         // Units
         $units = array();
         if ($unit_ids) {
+            $allowed_unit_statuses = array('publish','draft','pending','future','private');
             $unit_posts = get_posts(array(
-                'post_type'=>'unit',
-                'post__in'=>$unit_ids,
-                'orderby'=>'post__in',
-                'numberposts'=>-1,
-                'suppress_filters'=>true,
+                'post_type'       => 'unit',
+                'post__in'        => $unit_ids,
+                'orderby'         => 'post__in',
+                'numberposts'     => -1,
+                'suppress_filters'=> true,
+                'post_status'     => $allowed_unit_statuses,
             ));
+            $found_unit_ids = array();
             foreach ($unit_posts as $u) {
+                $found_unit_ids[] = (int) $u->ID;
                 $embeds = $this->extract_embeds_from_content( (string)$u->post_content );
                 $raw    = get_post_meta($u->ID);
                 $dur    = $this->extract_duration_pair_from_meta($raw, array('vibe_unit_duration_parameter', 'vibe_duration_parameter'));
@@ -634,6 +651,27 @@ class WPLMS_S1_Exporter {
                     ),
                     'embeds' => $embeds,
                     'meta'   => $meta,
+                );
+            }
+
+            $missing_units = array_diff($unit_ids, $found_unit_ids);
+            foreach ($missing_units as $missing_id) {
+                $missing_post = get_post($missing_id);
+                $status = $missing_post ? $missing_post->post_status : null;
+                if ($missing_post === null) {
+                    $reason = 'not_found';
+                } elseif ($missing_post->post_type !== 'unit') {
+                    $reason = 'wrong_post_type';
+                } elseif (!in_array($status, $allowed_unit_statuses, true)) {
+                    $reason = 'disallowed_status';
+                } else {
+                    $reason = 'unknown';
+                }
+                $analysis['lessons_missing_in_export'][] = array(
+                    'id'        => (int) $missing_id,
+                    'course_id' => (int) $course->ID,
+                    'reason'    => $reason,
+                    'status'    => $status,
                 );
             }
         }
