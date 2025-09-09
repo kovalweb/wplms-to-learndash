@@ -54,11 +54,16 @@ class Importer {
             'course_tag_terms_updated' => 0,
             'course_terms_attached'   => 0,
             'courses_linked_to_products' => 0,
+            'courses_product_not_found' => 0,
             'linked_publish'          => 0,
             'linked_draft'            => 0,
         ];
 
         $this->stats_ref =& $stats;
+        $courses = (array) array_get( $payload, 'courses', [] );
+
+        // commerce linking preflight
+        $stats['commerce_linking_preflight'] = $this->preflight_commerce_linking( $courses );
 
         // 0) Taxonomies
         $taxonomies = (array) array_get( $payload, 'taxonomies', [] );
@@ -73,7 +78,6 @@ class Importer {
         }
 
         // 1) Courses
-        $courses = (array) array_get( $payload, 'courses', [] );
         foreach ( $courses as $course ) {
             try {
                 $cres = $this->import_course( $course );
@@ -217,6 +221,56 @@ class Importer {
         ) );
         $this->stats_ref = null;
         return $stats;
+    }
+
+    private function preflight_commerce_linking( array $courses ) {
+        $active = class_exists( '\\WC_Product' ) && (
+            defined( 'LEARNDASH_WOOCOMMERCE_VERSION' ) ||
+            defined( 'LEARNDASH_WOOCOMMERCE_PLUGIN_VERSION' ) ||
+            defined( 'LEARNDASH_WOO_VERSION' )
+        );
+
+        $products_total = 0;
+        $sample_sku     = '';
+        if ( $active ) {
+            $counts = \wp_count_posts( 'product' );
+            if ( $counts ) {
+                $products_total = array_sum( (array) $counts );
+            }
+            $sample = \get_posts( [
+                'post_type'   => 'product',
+                'post_status' => 'any',
+                'meta_key'    => '_sku',
+                'numberposts' => 1,
+                'fields'      => 'ids',
+            ] );
+            if ( $sample ) {
+                $sample_sku = (string) \get_post_meta( $sample[0], '_sku', true );
+            }
+        }
+
+        $with_sku = 0;
+        $missing  = [];
+        foreach ( $courses as $course ) {
+            $sku = array_get( $course, 'commerce.product_sku', '' );
+            if ( $sku ) {
+                $with_sku++;
+            } else {
+                $slug = normalize_slug( array_get( $course, 'current_slug', array_get( $course, 'post.post_name', '' ) ) );
+                if ( $slug ) {
+                    $missing[] = $slug;
+                }
+            }
+        }
+
+        return [
+            'woo_ld_active'          => $active,
+            'wc_products_total'      => $products_total,
+            'courses_in_payload'     => count( $courses ),
+            'courses_with_product_sku' => $with_sku,
+            'missing_course_refs'    => array_slice( $missing, 0, 5 ),
+            'sample_product_sku'     => $sample_sku,
+        ];
     }
 
     private function ensure_taxonomies() {
@@ -632,6 +686,9 @@ class Importer {
                 'sku'            => $sku,
                 'old_product_id' => (int) array_get( $course, 'meta.product_id', 0 ),
             ] );
+            if ( is_array( $this->stats_ref ) ) {
+                $this->stats_ref['courses_product_not_found'] = array_get( $this->stats_ref, 'courses_product_not_found', 0 ) + 1;
+            }
         }
 
         // service meta
