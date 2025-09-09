@@ -238,24 +238,29 @@ class WPLMS_S1_Exporter {
             ));
             foreach ($units_all as $uid) {
                 if ( isset($used_units[$uid]) ) continue;
-                $ass_ids = $this->extract_assignments_from_unit($uid, $warnings);
-                if ($ass_ids) {
-                    $in_any_course = !empty($unit_to_courses[$uid]);
-                    if ( ! $in_any_course ) {
-                        $up = get_post($uid);
-                        if ($up) {
-                            $parent = (int) get_post_field('post_parent', $uid);
-                            $entry = array(
-                                'old_id'      => (int)$up->ID,
-                                'post'        => array( 'post_title'=>$up->post_title, 'status'=>$up->post_status ),
-                                'assignments' => array_values(array_unique($ass_ids)),
-                                'reason'      => 'not_in_curriculum',
-                            );
-                            if ($parent > 0) $entry['parent_course_old_id'] = $parent;
-                            if ($export_mode === 'discover_all' || ($parent > 0 && in_array($parent, $parents, true))) {
-                                $export['orphans']['units'][] = $entry;
-                                foreach ($ass_ids as $aid) { if ( !isset($used_assignments[$aid]) ) $used_assignments[$aid] = false; }
-                            }
+                $in_any_course = ! empty( $unit_to_courses[ $uid ] );
+                if ( $in_any_course ) continue;
+
+                $up = get_post( $uid );
+                if ( ! $up ) continue;
+
+                $ass_ids = $this->extract_assignments_from_unit( $uid, $warnings );
+                $parent  = (int) get_post_field( 'post_parent', $uid );
+                $entry   = array(
+                    'old_id'      => (int) $up->ID,
+                    'post'        => array( 'post_title' => $up->post_title, 'status' => $up->post_status ),
+                    'status'      => $up->post_status,
+                    'assignments' => array_values( array_unique( $ass_ids ) ),
+                    'reason'      => 'no_course_link',
+                );
+                if ( $parent > 0 ) {
+                    $entry['parent_course_old_id'] = $parent;
+                }
+                if ( $export_mode === 'discover_all' || ( $parent > 0 && in_array( $parent, $parents, true ) ) ) {
+                    $export['orphans']['units'][] = $entry;
+                    foreach ( $ass_ids as $aid ) {
+                        if ( ! isset( $used_assignments[ $aid ] ) ) {
+                            $used_assignments[ $aid ] = false;
                         }
                     }
                 }
