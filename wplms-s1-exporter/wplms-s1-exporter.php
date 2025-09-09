@@ -178,6 +178,7 @@ class WPLMS_S1_Exporter {
             'courses_without_duration' => array(),
             'lessons_without_duration' => array(),
             'lessons_missing_in_export' => array(),
+            'courses_without_sku'   => array(),
             'products'             => array(),
             'stats' => array(
                 'total_courses'             => count($courses),
@@ -299,6 +300,19 @@ class WPLMS_S1_Exporter {
                 fputcsv( $fh, array( 'lesson_id', 'course_id', 'reason', 'status' ) );
                 foreach ( $analysis['lessons_missing_in_export'] as $row ) {
                     fputcsv( $fh, array( $row['id'], $row['course_id'], $row['reason'], $row['status'] ) );
+                }
+                fclose( $fh );
+            }
+        }
+
+        if ( ! empty( $analysis['courses_without_sku'] ) ) {
+            $csv_path = __DIR__ . '/courses_without_sku.csv';
+            $fh = fopen( $csv_path, 'w' );
+            if ( $fh ) {
+                fputcsv( $fh, array( 'course_id', 'product_id', 'reason' ) );
+                foreach ( $analysis['courses_without_sku'] as $row ) {
+                    $pid = isset( $row['product_id'] ) ? $row['product_id'] : '';
+                    fputcsv( $fh, array( $row['course_id'], $pid, $row['reason'] ) );
                 }
                 fclose( $fh );
             }
@@ -497,6 +511,22 @@ class WPLMS_S1_Exporter {
             }
         } else {
             $warnings['product_not_found'][] = array( 'course_id'=>(int)$course->ID );
+        }
+
+        $sku_reason = null;
+        $pid_for_csv = $product_id;
+        if ( ! $has_product || ! $product_id ) {
+            $pid_for_csv = null;
+            $sku_reason = $used_reverse_match ? 'product_not_found_reverse_lookup' : 'course_not_linked_to_product';
+        } elseif ( $product_sku === null ) {
+            $sku_reason = 'product_has_no_sku';
+        }
+        if ( $sku_reason !== null ) {
+            $analysis['courses_without_sku'][] = array(
+                'course_id'  => (int) $course->ID,
+                'product_id' => $pid_for_csv ? (int) $pid_for_csv : null,
+                'reason'     => $sku_reason,
+            );
         }
 
         if ( $product_status ) {
@@ -883,11 +913,15 @@ class WPLMS_S1_Exporter {
 
     private function reverse_lookup_products( $course_id ) {
         global $wpdb;
-        $like = '%"' . intval( $course_id ) . '"%';
-        $sql = $wpdb->prepare(
-            "SELECT p.ID, p.post_status, p.post_type, p.post_parent FROM {$wpdb->posts} p JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id WHERE pm.meta_key = 'vibe_courses' AND pm.meta_value LIKE %s",
-            $like
-        );
+        $course_id = (int) $course_id;
+        $like = '%"' . $course_id . '"%';
+        $meta_keys = apply_filters( 'wplms_s1_reverse_lookup_meta_keys', array( 'vibe_courses' ) );
+        $meta_keys = array_values( array_unique( array_filter( $meta_keys, 'is_string' ) ) );
+        if ( empty( $meta_keys ) ) return array();
+        $placeholders = implode( ',', array_fill( 0, count( $meta_keys ), '%s' ) );
+        $sql = "SELECT p.ID, p.post_status, p.post_type, p.post_parent FROM {$wpdb->posts} p JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id WHERE pm.meta_value LIKE %s AND pm.meta_key IN ($placeholders)";
+        $params = array_merge( array( $like ), $meta_keys );
+        $sql = $wpdb->prepare( $sql, $params );
         $rows = $wpdb->get_results( $sql );
         $out = array();
         if ( is_array( $rows ) ) {
