@@ -80,6 +80,32 @@ class Admin {
                                         <?php endif; ?>
                                 <?php endif; ?>
 
+                                <?php $cl_pf = (array) array_get( $stats, 'commerce_linking_preflight', [] ); ?>
+                                <?php if ( $cl_pf ) : ?>
+                                        <h2 class="title">Commerce linking preflight</h2>
+                                        <ul>
+                                                <li>WooCommerce for LearnDash active: <?php echo \esc_html( array_get( $cl_pf, 'woo_ld_active' ) ? 'yes' : 'no' ); ?></li>
+                                                <li>Total WooCommerce products: <?php echo \esc_html( array_get( $cl_pf, 'wc_products_total', 0 ) ); ?></li>
+                                                <li>Courses in payload: <?php echo \esc_html( array_get( $cl_pf, 'courses_in_payload', 0 ) ); ?></li>
+                                                <li>Courses with product SKU: <?php echo \esc_html( array_get( $cl_pf, 'courses_with_product_sku', 0 ) ); ?></li>
+                                                <li>Sample product SKU: <?php echo \esc_html( array_get( $cl_pf, 'sample_product_sku', '' ) ); ?></li>
+                                                <?php $missing = (array) array_get( $cl_pf, 'missing_course_refs', [] ); ?>
+                                                <?php if ( $missing ) : ?>
+                                                        <li>Missing course references: <?php echo \esc_html( implode( ', ', $missing ) ); ?></li>
+                                                <?php endif; ?>
+                                        </ul>
+                                <?php endif; ?>
+
+                                <?php if ( array_get( $stats, 'courses_linked_to_products' ) || array_get( $stats, 'courses_product_not_found' ) ) : ?>
+                                        <h2 class="title">Commerce linking stats</h2>
+                                        <ul>
+                                                <li>Courses linked to products: <?php echo \esc_html( array_get( $stats, 'courses_linked_to_products', 0 ) ); ?></li>
+                                                <li>Courses with missing product: <?php echo \esc_html( array_get( $stats, 'courses_product_not_found', 0 ) ); ?></li>
+                                                <li>Linked publish: <?php echo \esc_html( array_get( $stats, 'linked_publish', 0 ) ); ?></li>
+                                                <li>Linked draft: <?php echo \esc_html( array_get( $stats, 'linked_draft', 0 ) ); ?></li>
+                                        </ul>
+                                <?php endif; ?>
+
                                 <?php if ( $repair_summary ) : ?>
                                         <div class="notice notice-success"><p><?php echo \esc_html( 'ProQuiz repair fixed ' . array_get( $repair_summary, 'fixed', 0 ) . ( array_get( $repair_summary, 'ids' ) ? ': ' . implode( ', ', array_map( 'intval', (array) array_get( $repair_summary, 'ids', [] ) ) ) : '' ) ); ?></p></div>
                                 <?php endif; ?>
