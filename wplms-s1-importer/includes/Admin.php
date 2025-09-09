@@ -1,5 +1,6 @@
 <?php
 namespace WPLMS_S1I;
+use function esc_html;
 class Admin {
 		private $page_slug = 'wplms-s1-importer';
 
@@ -7,19 +8,14 @@ class Admin {
                         \add_action( 'admin_menu', [ $this, 'menu' ] );
                         \add_action( 'admin_post_wplms_s1i_run', [ $this, 'handle_import' ] );
                         \add_action( 'admin_post_wplms_s1i_reset', [ $this, 'handle_reset' ] );
-                        \add_action( 'admin_post_wplms_s1i_repair_proquiz', [ $this, 'handle_repair_proquiz' ] );
-                        \add_action( 'admin_post_wplms_s1i_attach_orphans', [ $this, 'handle_attach_orphans' ] );
                         \add_action( 'admin_post_wplms_s1i_orphans_csv', [ $this, 'handle_orphans_csv' ] );
-                        \add_action( 'admin_post_wplms_s1i_ld_upgrades', [ $this, 'handle_ld_upgrades' ] );
-                        \add_action( 'admin_post_wplms_s1i_cleanup_course_cat', [ $this, 'handle_cleanup_course_cat' ] );
-                        \add_action( 'admin_post_wplms_s1i_dedupe_certificates', [ $this, 'handle_dedupe_certificates' ] );
                 }
 
 		public function menu() {
 			\add_submenu_page(
 				'tools.php',
-				'WPLMS S1 Importer',
-				'WPLMS S1 Importer',
+                                'WPLMS → LearnDash Importer',
+                                'WPLMS → LearnDash Importer',
 				'manage_options',
 				$this->page_slug,
 				[ $this, 'render' ]
@@ -35,45 +31,23 @@ class Admin {
                                 $report = \get_transient( 'wplms_s1i_last_report_' . $key );
                         }
 
-                        $repair_summary = \get_transient( 'wplms_s1i_repair_summary' );
-                        if ( $repair_summary ) {
-                                \delete_transient( 'wplms_s1i_repair_summary' );
-                        }
-                        $attach_summary = \get_transient( 'wplms_s1i_attach_summary' );
-                        if ( $attach_summary ) {
-                                \delete_transient( 'wplms_s1i_attach_summary' );
-                        }
-                        $ldu_notice = \get_transient( 'wplms_s1i_ld_upgrades_notice' );
-                        if ( $ldu_notice ) {
-                                \delete_transient( 'wplms_s1i_ld_upgrades_notice' );
-                        }
-
-                        $cleanup_notice = \get_transient( 'wplms_s1i_cleanup_course_cat_notice' );
-                        if ( $cleanup_notice ) {
-                                \delete_transient( 'wplms_s1i_cleanup_course_cat_notice' );
-                        }
-                        $dedupe_notice = \get_transient( 'wplms_s1i_dedupe_certificates_notice' );
-                        if ( $dedupe_notice ) {
-                                \delete_transient( 'wplms_s1i_dedupe_certificates_notice' );
-                        }
-
                         $idmap        = new IdMap();
                         $stats_option = \get_option( \WPLMS_S1I_OPT_RUNSTATS, [] );
                         $en_pool      = \get_option( \WPLMS_S1I_OPT_ENROLL_POOL, [] );
                         $stats        = ( $report && ! empty( $report['dry'] ) ) ? (array) array_get( $report, 'stats', [] ) : $stats_option;
                         ?>
                         <div class="wrap">
-                                <h1>WPLMS → LearnDash Importer (PoC)</h1>
-                                <p>Version <?php echo \esc_html( \WPLMS_S1I_VER ); ?>. Use this to import the JSON created by WPLMS S1 Exporter.</p>
+                                <h1>WPLMS → LearnDash Importer</h1>
+                                <p>Version <?php echo esc_html( \WPLMS_S1I_VER ); ?>. Use this to import the JSON created by WPLMS S1 Exporter.</p>
 
                                 <?php $tax_pf = (array) array_get( $stats, 'tax_preflight', [] ); ?>
                                 <?php if ( $tax_pf ) : ?>
                                         <h2 class="title">Taxonomy preflight</h2>
                                         <ul>
-                                                <li>ld_course_category: <?php echo \esc_html( array_get( $tax_pf, 'ld_course_category', 'n/a' ) ); ?></li>
-                                                <li>ld_course_tag: <?php echo \esc_html( array_get( $tax_pf, 'ld_course_tag', 'n/a' ) ); ?></li>
-                                                <li>permalink_base: <?php echo \esc_html( array_get( $tax_pf, 'permalink_base', 'n/a' ) ); ?></li>
-                                                <li>permalink_sample_url: <?php echo \esc_html( array_get( $tax_pf, 'permalink_sample_url', 'n/a' ) ); ?></li>
+                                                <li>ld_course_category: <?php echo esc_html( array_get( $tax_pf, 'ld_course_category', 'n/a' ) ); ?></li>
+                                                <li>ld_course_tag: <?php echo esc_html( array_get( $tax_pf, 'ld_course_tag', 'n/a' ) ); ?></li>
+                                                <li>permalink_base: <?php echo esc_html( array_get( $tax_pf, 'permalink_base', 'n/a' ) ); ?></li>
+                                                <li>permalink_sample_url: <?php echo esc_html( array_get( $tax_pf, 'permalink_sample_url', 'n/a' ) ); ?></li>
                                         </ul>
                                         <?php if ( array_get( $tax_pf, 'permalink_base' ) !== 'course-cat' ) : ?>
                                                 <p><em>Set LearnDash course category base to "course-cat" for SEO friendly URLs.</em></p>
@@ -84,52 +58,40 @@ class Admin {
                                 <?php if ( $cl_pf ) : ?>
                                         <h2 class="title">Commerce linking preflight</h2>
                                         <ul>
-                                                <li>WooCommerce for LearnDash active: <?php echo \esc_html( array_get( $cl_pf, 'woo_ld_active' ) ? 'yes' : 'no' ); ?></li>
-                                                <li>Total WooCommerce products: <?php echo \esc_html( array_get( $cl_pf, 'wc_products_total', 0 ) ); ?></li>
-                                                <li>Courses in payload: <?php echo \esc_html( array_get( $cl_pf, 'courses_in_payload', 0 ) ); ?></li>
-                                                <li>Courses with product SKU: <?php echo \esc_html( array_get( $cl_pf, 'courses_with_product_sku', 0 ) ); ?></li>
-                                                <li>Sample product SKU: <?php echo \esc_html( array_get( $cl_pf, 'sample_product_sku', '' ) ); ?></li>
+                                                <li>WooCommerce for LearnDash: <?php echo esc_html( array_get( $cl_pf, 'woocommerce_for_learndash', '' ) ); ?></li>
+                                                <li>Total WooCommerce products: <?php echo esc_html( array_get( $cl_pf, 'products_total', 0 ) ); ?></li>
+                                                <li>Courses in payload: <?php echo esc_html( array_get( $cl_pf, 'courses_in_payload', 0 ) ); ?></li>
+                                                <li>Courses with product SKU: <?php echo esc_html( array_get( $cl_pf, 'courses_with_product_sku', 0 ) ); ?></li>
+                                                <li>Courses with certificate ref: <?php echo esc_html( array_get( $cl_pf, 'courses_with_certificate_ref', 0 ) ); ?></li>
+                                                <li>Sample product SKU: <?php echo esc_html( array_get( $cl_pf, 'sample_product_sku', '' ) ); ?></li>
                                                 <?php $missing = (array) array_get( $cl_pf, 'missing_course_refs', [] ); ?>
                                                 <?php if ( $missing ) : ?>
-                                                        <li>Missing course references: <?php echo \esc_html( implode( ', ', $missing ) ); ?></li>
+                                                        <li>Missing course references: <?php echo esc_html( implode( ', ', $missing ) ); ?></li>
                                                 <?php endif; ?>
                                         </ul>
                                 <?php endif; ?>
 
-                                <?php if ( array_get( $stats, 'courses_linked_to_products' ) || array_get( $stats, 'courses_product_not_found' ) ) : ?>
+                                <?php if ( array_get( $stats, 'courses_linked_to_products' ) || array_get( $stats, 'product_not_found_for_course' ) || array_get( $stats, 'certificates_attached' ) || array_get( $stats, 'certificates_missing' ) || array_get( $stats, 'certificates_already_attached' ) ) : ?>
                                         <h2 class="title">Commerce linking stats</h2>
                                         <ul>
-                                                <li>Courses linked to products: <?php echo \esc_html( array_get( $stats, 'courses_linked_to_products', 0 ) ); ?></li>
-                                                <li>Courses with missing product: <?php echo \esc_html( array_get( $stats, 'courses_product_not_found', 0 ) ); ?></li>
-                                                <li>Linked publish: <?php echo \esc_html( array_get( $stats, 'linked_publish', 0 ) ); ?></li>
-                                                <li>Linked draft: <?php echo \esc_html( array_get( $stats, 'linked_draft', 0 ) ); ?></li>
+                                                <li>Courses linked to products: <?php echo esc_html( array_get( $stats, 'courses_linked_to_products', 0 ) ); ?></li>
+                                                <li>Courses with missing product: <?php echo esc_html( array_get( $stats, 'product_not_found_for_course', 0 ) ); ?></li>
+                                                <li>Linked publish: <?php echo esc_html( array_get( $stats, 'linked_publish', 0 ) ); ?></li>
+                                                <li>Linked draft: <?php echo esc_html( array_get( $stats, 'linked_draft', 0 ) ); ?></li>
+                                                <li>Certificates attached: <?php echo esc_html( array_get( $stats, 'certificates_attached', 0 ) ); ?></li>
+                                                <li>Certificates missing: <?php echo esc_html( array_get( $stats, 'certificates_missing', 0 ) ); ?></li>
+                                                <li>Certificates already attached: <?php echo esc_html( array_get( $stats, 'certificates_already_attached', 0 ) ); ?></li>
                                         </ul>
                                 <?php endif; ?>
 
-                                <?php if ( $repair_summary ) : ?>
-                                        <div class="notice notice-success"><p><?php echo \esc_html( 'ProQuiz repair fixed ' . array_get( $repair_summary, 'fixed', 0 ) . ( array_get( $repair_summary, 'ids' ) ? ': ' . implode( ', ', array_map( 'intval', (array) array_get( $repair_summary, 'ids', [] ) ) ) : '' ) ); ?></p></div>
-                                <?php endif; ?>
-                                <?php if ( $attach_summary ) : ?>
-                                        <div class="notice notice-success"><p><?php echo \esc_html( 'Orphans attached — lessons ' . array_get( $attach_summary, 'units_attached', 0 ) . ' (left ' . array_get( $attach_summary, 'units_left', 0 ) . '), quizzes ' . array_get( $attach_summary, 'quizzes_attached', 0 ) . ' (left ' . array_get( $attach_summary, 'quizzes_left', 0 ) . '), assignments ' . array_get( $attach_summary, 'assignments_attached', 0 ) . ' (left ' . array_get( $attach_summary, 'assignments_left', 0 ) . ')' ); ?></p></div>
-                                <?php endif; ?>
-                                <?php if ( $ldu_notice ) : ?>
-                                        <div class="notice notice-info"><p><?php echo \esc_html( $ldu_notice ); ?></p></div>
-                                <?php endif; ?>
-
-                                <?php if ( $cleanup_notice ) : ?>
-                                        <div class="notice notice-success"><p><?php echo \esc_html( $cleanup_notice ); ?></p></div>
-                                <?php endif; ?>
-                                <?php if ( $dedupe_notice ) : ?>
-                                        <div class="notice notice-success"><p><?php echo \esc_html( $dedupe_notice ); ?></p></div>
-                                <?php endif; ?>
 
                                 <?php if ( $report ) : ?>
                                         <h2 class="title">Run Report <?php echo $report['dry'] ? '<span style="font-size:0.8em;background:#ddd;padding:2px 6px;border-radius:3px;">Dry run</span>' : '<span style="font-size:0.8em;background:#ddd;padding:2px 6px;border-radius:3px;">Real run</span>'; ?></h2>
                                         <?php if ( ! empty( $report['error'] ) ) : ?>
-                                                <div class="notice notice-error"><p><?php echo \esc_html( $report['error'] ); ?></p></div>
+                                                <div class="notice notice-error"><p><?php echo esc_html( $report['error'] ); ?></p></div>
                                         <?php endif; ?>
-                                        <pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo \esc_html( print_r( array_get( $report, 'stats', [] ), true ) ); ?></pre>
-                                        <p>Log file: <code><?php echo \esc_html( array_get( $report, 'log', '' ) ); ?></code></p>
+                                        <pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo esc_html( print_r( array_get( $report, 'stats', [] ), true ) ); ?></pre>
+                                        <p>Log file: <code><?php echo esc_html( array_get( $report, 'log', '' ) ); ?></code></p>
                                 <?php endif; ?>
 
                                 <h2 class="title">Run Import</h2>
@@ -160,23 +122,6 @@ class Admin {
                                         <?php \submit_button( 'Reset ID Map & Stats', 'delete' ); ?>
                                 </form>
 
-                                <form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>" style="margin-top:1em;">
-                                        <?php \wp_nonce_field( 'wplms_s1i_repair_proquiz' ); ?>
-                                        <input type="hidden" name="action" value="wplms_s1i_repair_proquiz" />
-                                        <?php \submit_button( 'Repair ProQuiz Links', 'secondary' ); ?>
-                                </form>
-
-                                <form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>" style="margin-top:1em;">
-                                        <?php \wp_nonce_field( 'wplms_s1i_ld_upgrades' ); ?>
-                                        <input type="hidden" name="action" value="wplms_s1i_ld_upgrades" />
-                                        <?php \submit_button( 'Run LearnDash Upgrades (Quizzes/Questions)', 'secondary' ); ?>
-                                </form>
-
-                                <form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>" style="margin-top:1em;">
-                                        <?php \wp_nonce_field( 'wplms_s1i_attach_orphans' ); ?>
-                                        <input type="hidden" name="action" value="wplms_s1i_attach_orphans" />
-                                        <?php \submit_button( 'Attach Orphans', 'secondary' ); ?>
-                                </form>
 
                                 <form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>" style="margin-top:1em;">
                                         <?php \wp_nonce_field( 'wplms_s1i_orphans_csv' ); ?>
@@ -184,27 +129,16 @@ class Admin {
                                         <?php \submit_button( 'Export Orphans CSV', 'secondary' ); ?>
                                 </form>
 
-                                <form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>" style="margin-top:1em;">
-                                        <?php \wp_nonce_field( 'wplms_s1i_cleanup_course_cat' ); ?>
-                                        <input type="hidden" name="action" value="wplms_s1i_cleanup_course_cat" />
-                                        <?php \submit_button( 'Cleanup legacy course-cat', 'secondary' ); ?>
-                                </form>
-
-                                <form method="post" action="<?php echo \esc_url( \admin_url( 'admin-post.php' ) ); ?>" style="margin-top:1em;">
-                                        <?php \wp_nonce_field( 'wplms_s1i_dedupe_certificates' ); ?>
-                                        <input type="hidden" name="action" value="wplms_s1i_dedupe_certificates" />
-                                        <?php \submit_button( 'Cleanup duplicate certificates', 'secondary' ); ?>
-                                </form>
 
                                 <h2 class="title">ID Map (summary)<?php echo ( $report && ! empty( $report['dry'] ) ) ? ' <small>(Dry run doesn\'t update ID Map)</small>' : ''; ?></h2>
-                                <pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo \esc_html( print_r( $idmap->get_all(), true ) ); ?></pre>
+                                <pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo esc_html( print_r( $idmap->get_all(), true ) ); ?></pre>
 
                                 <h2 class="title">Last Run Stats</h2>
-                                <pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo \esc_html( print_r( $stats, true ) ); ?></pre>
+                                <pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo esc_html( print_r( $stats, true ) ); ?></pre>
 
                                 <h2 class="title">Enrollments Pool (deferred)</h2>
                                 <p>Stored per original course ID for later user mapping.</p>
-                                <pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo \esc_html( print_r( [ 'courses'=> count( $en_pool ) ], true ) ); ?></pre>
+                                <pre style="max-height:300px;overflow:auto;background:#fff;border:1px solid #ddd;padding:10px"><?php echo esc_html( print_r( [ 'courses'=> count( $en_pool ) ], true ) ); ?></pre>
 
                         </div>
                         <?php
@@ -243,7 +177,7 @@ class Admin {
 			
 			$data = \json_decode( $raw, true );
 			if ( \json_last_error() !== JSON_ERROR_NONE ) {
-				\wp_die( 'Invalid JSON: ' . \esc_html( \json_last_error_msg() ) );
+				\wp_die( 'Invalid JSON: ' . esc_html( \json_last_error_msg() ) );
 			}
 
                         $logger   = new Logger();
@@ -285,100 +219,6 @@ class Admin {
                         exit;
                 }
 
-                public function handle_repair_proquiz() {
-                        if ( ! \current_user_can( 'manage_options' ) ) \wp_die( 'Unauthorized' );
-                        \check_admin_referer( 'wplms_s1i_repair_proquiz' );
-
-                        $fixed = [];
-                        global $wpdb;
-                        $table = $wpdb->prefix . 'wp_pro_quiz_master';
-
-                        $quizzes = \get_posts( [
-                                'post_type'      => 'sfwd-quiz',
-                                'post_status'    => 'any',
-                                'posts_per_page' => -1,
-                                'fields'         => 'ids',
-                        ] );
-
-                        foreach ( $quizzes as $qid ) {
-                                $existing = function_exists( '\learndash_get_setting' ) ? (int) \learndash_get_setting( $qid, 'ld_pro_quiz' ) : (int) \get_post_meta( $qid, 'ld_pro_quiz', true );
-                                if ( $existing > 0 ) {
-                                        $row = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$table} WHERE id = %d", $existing ) );
-                                        if ( $row > 0 ) {
-                                                continue; // Already linked
-                                        }
-                                }
-
-                                $title  = \get_the_title( $qid );
-                                $master = create_proquiz_master( $qid, [ 'name' => $title, 'title' => $title ] );
-                                if ( $master ) {
-                                        \update_post_meta( $qid, 'quiz_pro', $master );
-                                        \update_post_meta( $qid, 'quiz_pro_id', $master );
-                                        if ( function_exists( '\learndash_update_setting' ) ) {
-                                                \learndash_update_setting( $qid, 'ld_pro_quiz', $master );
-                                        } else {
-                                                \update_post_meta( $qid, 'ld_pro_quiz', $master );
-                                        }
-                                        $fixed[] = $qid;
-                                }
-                        }
-
-                        \set_transient( 'wplms_s1i_repair_summary', [ 'fixed' => count( $fixed ), 'ids' => $fixed ], 60 );
-                        \wp_safe_redirect( \add_query_arg( [ 'page' => $this->page_slug, 'repair' => 1 ], \admin_url( 'tools.php' ) ) );
-                        exit;
-                }
-
-                public function handle_ld_upgrades() {
-                        if ( ! \current_user_can( 'manage_options' ) ) \wp_die( 'Unauthorized' );
-                        \check_admin_referer( 'wplms_s1i_ld_upgrades' );
-
-                        $logger = new Logger();
-                        $logger->write( 'LD upgrades trigger' );
-
-                        $url = \admin_url( 'admin.php?page=learndash-data-upgrades' );
-                        if ( ! class_exists( '\Learndash_Admin_Data_Upgrades' ) ) {
-                                \set_transient( 'wplms_s1i_ld_upgrades_notice', 'Run quizzes/questions data upgrades from LearnDash Tools > Data Upgrades.', 60 );
-                                $url = \add_query_arg( [ 'page' => $this->page_slug ], \admin_url( 'tools.php' ) );
-                        }
-
-                        \wp_safe_redirect( $url );
-                        exit;
-                }
-
-                public function handle_cleanup_course_cat() {
-                        if ( ! \current_user_can( 'manage_options' ) ) \wp_die( 'Unauthorized' );
-                        \check_admin_referer( 'wplms_s1i_cleanup_course_cat' );
-
-                        if ( \taxonomy_exists( 'course-cat' ) ) {
-                                $terms = \get_terms( [ 'taxonomy' => 'course-cat', 'hide_empty' => false ] );
-                                if ( ! \is_wp_error( $terms ) ) {
-                                        foreach ( $terms as $term ) {
-                                                \wp_delete_term( $term->term_id, 'course-cat' );
-                                        }
-                                }
-                                if ( function_exists( 'unregister_taxonomy' ) ) {
-                                        \unregister_taxonomy( 'course-cat' );
-                                }
-                        }
-
-                        \flush_rewrite_rules();
-                        \set_transient( 'wplms_s1i_cleanup_course_cat_notice', 'Legacy course-cat cleaned up.', 60 );
-                        \wp_safe_redirect( \add_query_arg( [ 'page' => $this->page_slug ], \admin_url( 'tools.php' ) ) );
-                        exit;
-                }
-
-                public function handle_dedupe_certificates() {
-                        if ( ! \current_user_can( 'manage_options' ) ) \wp_die( 'Unauthorized' );
-                        \check_admin_referer( 'wplms_s1i_dedupe_certificates' );
-
-                        $idmap   = new IdMap();
-                        $summary = cleanup_duplicate_certificates( $idmap );
-                        $msg = sprintf( 'Duplicate certificates cleanup: groups %d, deleted %d.', (int) array_get( $summary, 'groups', 0 ), (int) array_get( $summary, 'deleted', 0 ) );
-                        \set_transient( 'wplms_s1i_dedupe_certificates_notice', $msg, 60 );
-                        \wp_safe_redirect( \add_query_arg( [ 'page' => $this->page_slug ], \admin_url( 'tools.php' ) ) );
-                        exit;
-                }
-
                 private function build_unit_course_map() {
                         $map = [];
                         $courses = \get_posts( [
@@ -399,93 +239,6 @@ class Admin {
                                 }
                         }
                         return $map;
-                }
-
-                public function handle_attach_orphans() {
-                        if ( ! \current_user_can( 'manage_options' ) ) \wp_die( 'Unauthorized' );
-                        \check_admin_referer( 'wplms_s1i_attach_orphans' );
-
-                        $idmap     = new IdMap();
-                        $unit_map  = $this->build_unit_course_map();
-                        $courses_fx = [];
-
-                        // lessons
-                        $lessons = \get_posts( [ 'post_type' => 'sfwd-lessons', 'meta_key' => '_wplms_orphan', 'meta_value' => 1, 'posts_per_page' => -1, 'fields' => 'ids' ] );
-                        $u_total = count( $lessons ); $u_attached = 0;
-                        foreach ( $lessons as $lid ) {
-                                $old = (int) \get_post_meta( $lid, '_wplms_old_id', true );
-                                if ( $old && isset( $unit_map[ $old ] ) ) {
-                                        $course_new = $unit_map[ $old ]['course_new_id'];
-                                        \wp_update_post( [ 'ID' => $lid, 'post_parent' => $course_new ] );
-                                        \update_post_meta( $lid, 'course_id', (int) $course_new );
-                                        \delete_post_meta( $lid, '_wplms_orphan' );
-                                        $u_attached++; $courses_fx[ $course_new ] = true;
-                                }
-                        }
-                        $u_left = $u_total - $u_attached;
-
-                        // quizzes
-                        $quizzes = \get_posts( [ 'post_type' => 'sfwd-quiz', 'meta_key' => '_wplms_orphan', 'meta_value' => 1, 'posts_per_page' => -1, 'fields' => 'ids' ] );
-                        $q_total = count( $quizzes ); $q_attached = 0;
-                        foreach ( $quizzes as $qid ) {
-                                $links = (array) \get_post_meta( $qid, '_wplms_s1_links', true );
-                                $course_old_ids = [];
-                                foreach ( $links as $vals ) {
-                                        foreach ( (array) $vals as $cid ) if ( is_numeric( $cid ) ) $course_old_ids[] = (int) $cid;
-                                }
-                                $course_old_ids = array_unique( $course_old_ids );
-                                foreach ( $course_old_ids as $oid ) {
-                                        $course_new = $idmap->get( 'courses', $oid );
-                                        if ( $course_new ) {
-                                                \wp_update_post( [ 'ID' => $qid, 'post_parent' => $course_new ] );
-                                                \update_post_meta( $qid, 'course_id', (int) $course_new );
-                                                \delete_post_meta( $qid, '_wplms_orphan' );
-                                                $q_attached++; $courses_fx[ $course_new ] = true; break;
-                                        }
-                                }
-                        }
-                        $q_left = $q_total - $q_attached;
-
-                        // assignments
-                        $assigns = \get_posts( [ 'post_type' => 'sfwd-assignment', 'meta_key' => '_wplms_orphan', 'meta_value' => 1, 'posts_per_page' => -1, 'fields' => 'ids' ] );
-                        $a_total = count( $assigns ); $a_attached = 0;
-                        foreach ( $assigns as $aid ) {
-                                $links = (array) \get_post_meta( $aid, '_wplms_s1_links', true );
-                                $course_new = 0; $lesson_new = 0;
-                                if ( ! empty( $links['unit'] ) ) {
-                                        $unit_old = is_array( $links['unit'] ) ? reset( $links['unit'] ) : $links['unit'];
-                                        $lesson_new = $idmap->get( 'units', (int) $unit_old );
-                                        if ( $lesson_new ) $course_new = (int) \get_post_field( 'post_parent', $lesson_new );
-                                }
-                                if ( ! $lesson_new && ! empty( $links['course'] ) ) {
-                                        $course_old = is_array( $links['course'] ) ? reset( $links['course'] ) : $links['course'];
-                                        $course_new = $idmap->get( 'courses', (int) $course_old );
-                                }
-                                if ( $lesson_new || $course_new ) {
-                                        \wp_update_post( [ 'ID' => $aid, 'post_parent' => (int) ( $lesson_new ?: $course_new ) ] );
-                                        if ( $course_new ) { \update_post_meta( $aid, 'course_id', (int) $course_new ); }
-                                        if ( $lesson_new ) { \update_post_meta( $aid, 'lesson_id', (int) $lesson_new ); }
-                                        \delete_post_meta( $aid, '_wplms_orphan' );
-                                        $a_attached++; if ( $course_new ) $courses_fx[ $course_new ] = true;
-                                }
-                        }
-                        $a_left = $a_total - $a_attached;
-
-                        foreach ( array_keys( $courses_fx ) as $cid ) {
-                                if ( function_exists( 'learndash_course_set_steps' ) ) { \learndash_course_set_steps( $cid ); }
-                        }
-
-                        \set_transient( 'wplms_s1i_attach_summary', [
-                                'units_attached'       => $u_attached,
-                                'units_left'           => $u_left,
-                                'quizzes_attached'     => $q_attached,
-                                'quizzes_left'         => $q_left,
-                                'assignments_attached' => $a_attached,
-                                'assignments_left'     => $a_left,
-                        ], 60 );
-
-                        \wp_safe_redirect( \add_query_arg( [ 'page' => $this->page_slug ], \admin_url( 'tools.php' ) ) );
-                        exit;
                 }
 
                 public function handle_orphans_csv() {

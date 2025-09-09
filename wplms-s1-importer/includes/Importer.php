@@ -60,9 +60,13 @@ class Importer {
             'course_tag_terms_updated' => 0,
             'course_terms_attached'   => 0,
             'courses_linked_to_products' => 0,
-            'courses_product_not_found' => 0,
+            'product_not_found_for_course' => 0,
             'linked_publish'          => 0,
             'linked_draft'            => 0,
+            'certificates_attached'   => 0,
+            'certificates_missing'    => 0,
+            'certificates_already_attached' => 0,
+            'certificates_missing_examples' => [],
         ];
 
         $this->stats_ref =& $stats;
@@ -261,8 +265,9 @@ class Importer {
             }
         }
 
-        $with_sku = 0;
-        $missing  = [];
+        $with_sku   = 0;
+        $with_cert  = 0;
+        $missing    = [];
         foreach ( $courses as $course ) {
             $sku = array_get( $course, 'commerce.product_sku', '' );
             if ( $sku ) {
@@ -273,15 +278,27 @@ class Importer {
                     $missing[] = $slug;
                 }
             }
+
+            $ref = array_get( $course, 'certificate_ref', [] );
+            if ( is_array( $ref ) ) {
+                if ( array_get( $ref, 'old_id' ) || array_get( $ref, 'title' ) || array_get( $ref, 'slug' ) ) {
+                    $with_cert++;
+                }
+            } else {
+                $raw = array_get( $course, 'vibe.vibe_certificate_template', 0 );
+                if ( is_array( $raw ) ) { $raw = reset( $raw ); }
+                if ( (int) $raw > 0 ) { $with_cert++; }
+            }
         }
 
         return [
-            'woo_ld_active'          => $active,
-            'wc_products_total'      => $products_total,
-            'courses_in_payload'     => count( $courses ),
-            'courses_with_product_sku' => $with_sku,
-            'missing_course_refs'    => array_slice( $missing, 0, 5 ),
-            'sample_product_sku'     => $sample_sku,
+            'woocommerce_for_learndash' => $active ? 'detected' : 'missing',
+            'products_total'            => $products_total,
+            'courses_in_payload'        => count( $courses ),
+            'courses_with_product_sku'  => $with_sku,
+            'courses_with_certificate_ref' => $with_cert,
+            'missing_course_refs'       => array_slice( $missing, 0, 5 ),
+            'sample_product_sku'        => $sample_sku,
         ];
     }
 
@@ -676,13 +693,7 @@ class Importer {
         }
 
         if ( $product_id ) {
-            $old_access_mode = \get_post_meta( $new_id, 'ld_course_access_mode', true );
-            hv_ld_link_course_to_product( $new_id, $product_id );
-            if ( $old_access_mode !== '' ) {
-                \update_post_meta( $new_id, 'ld_course_access_mode', $old_access_mode );
-            } else {
-                \delete_post_meta( $new_id, 'ld_course_access_mode' );
-            }
+            hv_ld_link_course_to_product( $new_id, $product_id, $this->logger );
             if ( is_array( $this->stats_ref ) ) {
                 $this->stats_ref['courses_linked_to_products'] = array_get( $this->stats_ref, 'courses_linked_to_products', 0 ) + 1;
                 if ( \get_post_status( $product_id ) === 'publish' ) {
@@ -699,7 +710,7 @@ class Importer {
                 'old_product_id' => (int) array_get( $course, 'meta.product_id', 0 ),
             ] );
             if ( is_array( $this->stats_ref ) ) {
-                $this->stats_ref['courses_product_not_found'] = array_get( $this->stats_ref, 'courses_product_not_found', 0 ) + 1;
+                $this->stats_ref['product_not_found_for_course'] = array_get( $this->stats_ref, 'product_not_found_for_course', 0 ) + 1;
             }
         }
 
@@ -1068,33 +1079,103 @@ class Importer {
 
     private function attach_course_certificate( $course, $course_new_id ) {
         $course_old_id = (int) array_get( $course, 'old_id', 0 );
-        $raw = array_get( $course, 'vibe.vibe_certificate_template', 0 );
-        if ( is_array( $raw ) ) {
-            $raw = reset( $raw );
+        $ref = array_get( $course, 'certificate_ref', [] );
+        $cert_old_id = 0;
+        $cert_title  = '';
+        $cert_slug   = '';
+        if ( is_array( $ref ) ) {
+            $cert_old_id = (int) array_get( $ref, 'old_id', 0 );
+            $cert_title  = (string) array_get( $ref, 'title', '' );
+            $cert_slug   = normalize_slug( array_get( $ref, 'slug', '' ) );
+        } else {
+            $raw = array_get( $course, 'vibe.vibe_certificate_template', 0 );
+            if ( is_array( $raw ) ) { $raw = reset( $raw ); }
+            $cert_old_id = (int) $raw;
         }
-        $cert_old_id = (int) $raw;
-        if ( $cert_old_id <= 0 ) {
+
+        if ( $cert_old_id <= 0 && $cert_title === '' && $cert_slug === '' ) {
             return;
         }
-        $cert_new_id = (int) $this->idmap->get( 'certificate', $cert_old_id );
+
+        $cert_new_id = 0;
+        if ( $cert_old_id > 0 ) {
+            $found = \get_posts( [
+                'post_type'   => 'sfwd-certificates',
+                'post_status' => 'any',
+                'meta_key'    => '_wplms_old_id',
+                'meta_value'  => $cert_old_id,
+                'fields'      => 'ids',
+                'numberposts' => 1,
+            ] );
+            if ( $found ) {
+                $cert_new_id = (int) $found[0];
+            }
+        }
+        if ( ! $cert_new_id && $cert_title ) {
+            $page = \get_page_by_title( $cert_title, OBJECT, 'sfwd-certificates' );
+            if ( $page ) { $cert_new_id = (int) $page->ID; }
+        }
+        if ( ! $cert_new_id && $cert_slug ) {
+            $found = \get_posts( [
+                'post_type'   => 'sfwd-certificates',
+                'post_status' => 'any',
+                'name'        => $cert_slug,
+                'fields'      => 'ids',
+                'numberposts' => 1,
+            ] );
+            if ( $found ) { $cert_new_id = (int) $found[0]; }
+        }
+
         $log = [
             'course_old_id' => $course_old_id,
             'course_new_id' => $course_new_id,
             'cert_old_id'   => $cert_old_id,
             'cert_new_id'   => $cert_new_id,
+            'cert_title'    => $cert_title,
+            'cert_slug'     => $cert_slug,
         ];
+
         if ( $this->dry_run ) {
             $this->logger->write( 'DRY: course certificate', $log );
             return;
         }
+
         if ( $cert_new_id > 0 ) {
-            if ( function_exists( '\learndash_update_setting' ) ) {
-                \learndash_update_setting( $course_new_id, 'course_certificate', $cert_new_id );
+            $current = 0;
+            if ( function_exists( '\\learndash_get_setting' ) ) {
+                $current = (int) \learndash_get_setting( $course_new_id, 'certificate' );
             } else {
-                \update_post_meta( $course_new_id, 'course_certificate', $cert_new_id );
+                $current = (int) \get_post_meta( $course_new_id, 'certificate', true );
             }
-            $this->logger->write( 'course certificate attached', $log );
+            if ( $current === $cert_new_id ) {
+                if ( is_array( $this->stats_ref ) ) {
+                    $this->stats_ref['certificates_already_attached'] = array_get( $this->stats_ref, 'certificates_already_attached', 0 ) + 1;
+                }
+                $this->logger->write( 'course certificate already attached', $log );
+                return;
+            }
+            $ok = hv_ld_attach_certificate_to_course( $course_new_id, $cert_new_id );
+            if ( $ok ) {
+                if ( is_array( $this->stats_ref ) ) {
+                    $this->stats_ref['certificates_attached'] = array_get( $this->stats_ref, 'certificates_attached', 0 ) + 1;
+                }
+                $this->logger->write( 'course certificate attached', $log );
+            } else {
+                if ( is_array( $this->stats_ref ) ) {
+                    $this->stats_ref['certificates_missing'] = array_get( $this->stats_ref, 'certificates_missing', 0 ) + 1;
+                    if ( count( $this->stats_ref['certificates_missing_examples'] ) < 10 ) {
+                        $this->stats_ref['certificates_missing_examples'][] = $log;
+                    }
+                }
+                $this->logger->write( 'course certificate attach failed', $log );
+            }
         } else {
+            if ( is_array( $this->stats_ref ) ) {
+                $this->stats_ref['certificates_missing'] = array_get( $this->stats_ref, 'certificates_missing', 0 ) + 1;
+                if ( count( $this->stats_ref['certificates_missing_examples'] ) < 10 ) {
+                    $this->stats_ref['certificates_missing_examples'][] = $log;
+                }
+            }
             $this->logger->write( 'course certificate missing', $log );
         }
     }

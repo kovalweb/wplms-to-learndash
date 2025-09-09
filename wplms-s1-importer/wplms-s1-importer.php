@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: WPLMS S1 Importer
- * Description: Proof‑of‑Concept importer for migrating content from WPLMS S1 Exporter JSON into LearnDash (sfwd-* post types).
+ * Description: Importer for migrating content from WPLMS S1 Exporter JSON into LearnDash (sfwd-* post types).
  * Version: 1.0.0
  * Author: Specia1ne
  * License: GPLv2 or later
@@ -51,7 +51,7 @@ add_filter( 'learndash_payment_buttons', function ( $html, $course_id ) {
 // -----------------------------------------------------------------------------
 add_action( 'init', function () {
     // Ensure LearnDash CPTs exist (plugin can still create posts even if LD inactive, but recommended to activate LD first)
-    // Minimal guard: if post type absent, register a placeholder so posts can be created (PoC only).
+    // Minimal guard: if post type absent, register a placeholder so posts can be created.
     $needed = [ 'sfwd-courses', 'sfwd-lessons', 'sfwd-quiz', 'sfwd-assignment', 'sfwd-certificates' ];
     // Re-check after other plugins have registered their post types.
     $missing = array_filter( $needed, function ( $pt ) {
