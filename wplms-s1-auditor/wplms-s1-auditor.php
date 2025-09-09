@@ -8,6 +8,13 @@
 
 if (!defined('ABSPATH')) exit;
 
+if ( ! defined( 'WPLMS_S1A_DIR' ) ) {
+    define( 'WPLMS_S1A_DIR', plugin_dir_path( __FILE__ ) );
+}
+if ( ! defined( 'WPLMS_S1A_ROOT' ) ) {
+    define( 'WPLMS_S1A_ROOT', dirname( WPLMS_S1A_DIR ) );
+}
+
 class WPLMS_S1_Auditor {
   const SLUG   = 'wplms-s1-auditor';
   const ACTION = 'wplms_s1_auditor';
@@ -388,3 +395,75 @@ class WPLMS_S1_Auditor {
 }
 
 new WPLMS_S1_Auditor();
+
+if ( defined( 'WP_CLI' ) && WP_CLI ) {
+    \WP_CLI::add_command( 'wplms-auditor', new class {
+        /**
+         * Generate units report and CSV of lessons missing in export.
+         *
+         * ## OPTIONS
+         *
+         * <export_json>
+         * : Absolute path to exported JSON file.
+         */
+        public function report( $args, $assoc ) {
+            list( $export_path ) = $args;
+            if ( ! file_exists( $export_path ) ) {
+                \WP_CLI::error( 'Export file not found.' );
+            }
+
+            $statuses   = [ 'publish', 'draft', 'pending', 'private', 'future', 'trash', 'auto-draft' ];
+            $aggregates = [];
+            $all_ids    = [];
+
+            foreach ( $statuses as $st ) {
+                $cmd   = sprintf( 'post list --post_type=unit --post_status=%s --fields=ID --format=json', $st );
+                $posts = \WP_CLI::runcommand( $cmd, [ 'return' => true, 'parse' => 'json' ] );
+                $ids   = array_map( 'intval', wp_list_pluck( $posts, 'ID' ) );
+                $aggregates[ $st ] = count( $ids );
+                $all_ids           = array_merge( $all_ids, $ids );
+            }
+            $all_ids = array_unique( $all_ids );
+
+            $json = json_decode( file_get_contents( $export_path ), true );
+            $export_ids = [];
+            if ( isset( $json['courses'] ) && is_array( $json['courses'] ) ) {
+                foreach ( $json['courses'] as $course ) {
+                    if ( ! empty( $course['units'] ) && is_array( $course['units'] ) ) {
+                        foreach ( $course['units'] as $unit ) {
+                            if ( isset( $unit['old_id'] ) ) {
+                                $export_ids[] = (int) $unit['old_id'];
+                            }
+                        }
+                    }
+                }
+            }
+            $export_ids = array_unique( $export_ids );
+            $missing    = array_diff( $all_ids, $export_ids );
+
+            // write report
+            $report_path = WPLMS_S1A_ROOT . '/REPORT.md';
+            $fh = fopen( $report_path, 'w' );
+            if ( $fh ) {
+                fwrite( $fh, "# Unit Status Report\n\n|Status|Count|\n|---|---|\n" );
+                foreach ( $aggregates as $status => $count ) {
+                    fwrite( $fh, sprintf( "|%s|%d|\n", $status, $count ) );
+                }
+                fclose( $fh );
+            }
+            \WP_CLI::log( 'Report written to ' . $report_path );
+
+            // write CSV
+            $csv_path = WPLMS_S1A_ROOT . '/lessons_missing_in_export.csv';
+            $fh = fopen( $csv_path, 'w' );
+            if ( $fh ) {
+                fputcsv( $fh, [ 'lesson_id', 'reason', 'detected_in' ] );
+                foreach ( $missing as $id ) {
+                    fputcsv( $fh, [ $id, 'not_in_export', 'wp_post_list' ] );
+                }
+                fclose( $fh );
+            }
+            \WP_CLI::log( 'CSV written to ' . $csv_path );
+        }
+    } );
+}
