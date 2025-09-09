@@ -35,6 +35,7 @@ const WPLMS_S1I_OPT_ENROLL_POOL = 'wplms_s1i_enrollments_pool';
 // Autoload classes and helpers
 require_once WPLMS_S1I_DIR . 'includes/autoload.php';
 require_once WPLMS_S1I_DIR . 'includes/helpers.php';
+require_once WPLMS_S1I_DIR . 'includes/linking.php';
 
 // -----------------------------------------------------------------------------
 // Bootstrap
