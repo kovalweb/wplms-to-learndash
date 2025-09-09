@@ -25,6 +25,12 @@ class Importer {
             throw new \RuntimeException( 'Invalid import payload' );
         }
 
+        // Temporarily suppress emails and external notifications during import.
+        \add_filter( 'pre_wp_mail', '__return_false', PHP_INT_MAX );
+        \add_filter( 'learndash_notifications_enabled', '__return_false', PHP_INT_MAX );
+        \add_filter( 'ld_notifications_send_emails', '__return_false', PHP_INT_MAX );
+
+        try {
         $stats = [
             'courses_created'       => 0,
             'courses_updated'       => 0,
@@ -219,8 +225,14 @@ class Importer {
             array_get( $stats, 'images_skipped_empty', 0 ),
             array_get( $stats, 'images_errors', 0 )
         ) );
+        $result = $stats;
         $this->stats_ref = null;
-        return $stats;
+        return $result;
+        } finally {
+            \remove_filter( 'pre_wp_mail', '__return_false', PHP_INT_MAX );
+            \remove_filter( 'learndash_notifications_enabled', '__return_false', PHP_INT_MAX );
+            \remove_filter( 'ld_notifications_send_emails', '__return_false', PHP_INT_MAX );
+        }
     }
 
     private function preflight_commerce_linking( array $courses ) {

@@ -14,10 +14,30 @@ function hv_ld_link_course_to_product( int $course_id, int $product_id ): bool {
         return false;
     }
 
-    // Basic cross references.
-    \update_post_meta( $course_id, 'ld_product_id', $product_id );
-    \update_post_meta( $course_id, 'ld_course_access_mode', 'closed' );
-    \update_post_meta( $product_id, 'ld_course_id', $course_id );
+    // Basic cross references. Avoid unnecessary writes or duplicate IDs.
+    $existing = \get_post_meta( $course_id, 'ld_product_id', true );
+    if ( is_array( $existing ) ) {
+        if ( ! in_array( $product_id, $existing, true ) ) {
+            $existing[] = $product_id;
+            \update_post_meta( $course_id, 'ld_product_id', $existing );
+        }
+    } elseif ( (int) $existing !== $product_id ) {
+        \update_post_meta( $course_id, 'ld_product_id', $product_id );
+    }
+
+    if ( \get_post_meta( $course_id, 'ld_course_access_mode', true ) !== 'closed' ) {
+        \update_post_meta( $course_id, 'ld_course_access_mode', 'closed' );
+    }
+
+    $existing = \get_post_meta( $product_id, 'ld_course_id', true );
+    if ( is_array( $existing ) ) {
+        if ( ! in_array( $course_id, $existing, true ) ) {
+            $existing[] = $course_id;
+            \update_post_meta( $product_id, 'ld_course_id', $existing );
+        }
+    } elseif ( (int) $existing !== $course_id ) {
+        \update_post_meta( $product_id, 'ld_course_id', $course_id );
+    }
 
     // WooCommerce for LearnDash meta keys require arrays keyed by course ID.
     $meta_map = [
@@ -31,8 +51,10 @@ function hv_ld_link_course_to_product( int $course_id, int $product_id ): bool {
         if ( ! is_array( $meta ) ) {
             $meta = [];
         }
-        $meta[ $course_id ] = $default;
-        \update_post_meta( $product_id, $meta_key, $meta );
+        if ( ! array_key_exists( $course_id, $meta ) || $meta[ $course_id ] !== $default ) {
+            $meta[ $course_id ] = $default;
+            \update_post_meta( $product_id, $meta_key, $meta );
+        }
     }
 
     return true;
