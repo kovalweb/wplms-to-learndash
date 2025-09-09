@@ -14,14 +14,27 @@ function get_post_meta( $post_id, $meta_key, $single = true ) {
     return $single ? '' : [];
 }
 
+function learndash_update_setting( $post_id, $key, $value ) {
+    update_post_meta( $post_id, $key, $value );
+}
+
+function learndash_get_setting( $post_id, $key ) {
+    return get_post_meta( $post_id, $key, true );
+}
+
 require __DIR__ . '/../includes/linking.php';
 
 use function WPLMS_S1I\hv_ld_link_course_to_product;
 use function WPLMS_S1I\hv_get_linked_product_id_for_course;
+use function WPLMS_S1I\hv_ld_attach_certificate_to_course;
 
-// Link twice to ensure idempotency.
-hv_ld_link_course_to_product( 1, 100 );
-hv_ld_link_course_to_product( 1, 100 );
+// Link twice to ensure idempotency and return value semantics.
+$r1 = hv_ld_link_course_to_product( 1, 100 );
+$r2 = hv_ld_link_course_to_product( 1, 100 );
+if ( $r1 !== true || $r2 !== false ) {
+    echo "link_course return mismatch\n";
+    exit( 1 );
+}
 
 // Verify product meta arrays contain a single entry for course ID.
 $expected = [ 1 => 'paynow' ];
@@ -38,6 +51,14 @@ if ( $billing_times !== [ 1 => '' ] ) {
 $billing_units = $GLOBALS['post_meta'][100]['_ld_price_billing_unit'] ?? [];
 if ( $billing_units !== [ 1 => '' ] ) {
     echo "Duplicate _ld_price_billing_unit entries\n";
+    exit( 1 );
+}
+
+// Certificate attachment idempotency.
+hv_ld_attach_certificate_to_course( 1, 200 );
+hv_ld_attach_certificate_to_course( 1, 200 );
+if ( ( $GLOBALS['post_meta'][1]['certificate'] ?? 0 ) !== 200 ) {
+    echo "certificate attach failed\n";
     exit( 1 );
 }
 
