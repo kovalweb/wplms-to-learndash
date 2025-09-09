@@ -408,11 +408,10 @@ class WPLMS_S1_Exporter {
                 $warnings['generic'][] = 'Course ' . $course->ID . ' linked to multiple products: ' . implode( ',', $product_ids ) . '; using ' . $product_id;
             }
             $product_status = get_post_status( $product_id );
-            if ( $product_status ) {
-                $has_product = true;
-            } else {
-                $product_id = null;
+            if ( ! $product_status ) {
                 $product_status = null;
+            } else {
+                $has_product = true;
             }
         }
 
