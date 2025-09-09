@@ -130,7 +130,13 @@ class WPLMS_S1_Exporter {
             $courses = array_slice($courses, 0, $limit);
         }
 
-        $warnings  = array();
+        $warnings  = array(
+            'generic' => array(),
+            'product_not_found' => array(),
+            'multiple_product_candidates' => array(),
+            'product_has_no_sku' => array(),
+            'product_status_unknown' => array(),
+        );
         $discovery = array( 'quiz_from_curriculum'=>0, 'quiz_from_units'=>0, 'quiz_from_quizmeta'=>0, 'courses_with_assignments'=>0 );
         $stats     = array( 'courses'=>count($courses), 'units'=>0, 'quizzes'=>0, 'questions'=>0, 'assignments'=>0, 'certificates'=>0, 'media'=>0, 'courses_with_quizzes'=>0 );
 
@@ -139,7 +145,7 @@ class WPLMS_S1_Exporter {
             foreach ($courses as $c) $found_ids[] = intval($c->ID);
             $missed = array_diff($ids, $found_ids);
             if ( !empty($missed) ) {
-                $warnings[] = 'Selected posts not found by query: '.implode(',', array_map('intval', $missed));
+                $warnings['generic'][] = 'Selected posts not found by query: '.implode(',', array_map('intval', $missed));
             }
         }
 
@@ -173,11 +179,16 @@ class WPLMS_S1_Exporter {
             'lessons_without_duration' => array(),
             'products'             => array(),
             'stats' => array(
-                'total_courses'     => count($courses),
-                'access_type'       => array(),
-                'access_type_final' => array(),
-                'statuses'          => array(),
-                'subscriptions'     => 0,
+                'total_courses'             => count($courses),
+                'access_type'               => array(),
+                'access_type_final'         => array(),
+                'statuses'                  => array(),
+                'subscriptions'             => 0,
+                'courses_with_product_ref'  => 0,
+                'courses_missing_product_ref'=> 0,
+                'reverse_matches_used'      => 0,
+                'products_missing_sku'      => 0,
+                'multiple_product_candidates'=> 0,
             ),
         );
 
@@ -282,7 +293,7 @@ class WPLMS_S1_Exporter {
 
         $export['export_meta']['stats']     = $stats;
         $export['export_meta']['discovery'] = $discovery;
-        $export['export_meta']['warnings']  = array_values(array_unique($warnings));
+        $export['export_meta']['warnings']  = $warnings;
 
         $filename = 'wplms_s1_export_' . date('Ymd_His') . '.json';
         nocache_headers();
@@ -371,6 +382,7 @@ class WPLMS_S1_Exporter {
         $renewal_enabled = false;
         $product_sku = null;
         $product_old_id = null;
+        $used_reverse_match = false;
 
         $raw_ids = array();
         if ( ! empty( $vibe['vibe_product'] ) ) {
@@ -380,19 +392,59 @@ class WPLMS_S1_Exporter {
         if ( ! empty( $product_ids ) ) {
             $product_id = $product_ids[0];
             if ( count( $product_ids ) > 1 ) {
-                $warnings[] = 'Course ' . $course->ID . ' linked to multiple products: ' . implode( ',', $product_ids ) . '; using ' . $product_id;
-                if ( ! isset( $analysis['stats']['multi_product'] ) ) $analysis['stats']['multi_product'] = 0;
-                $analysis['stats']['multi_product']++;
+                $warnings['generic'][] = 'Course ' . $course->ID . ' linked to multiple products: ' . implode( ',', $product_ids ) . '; using ' . $product_id;
             }
-            $has_product = true;
             $product_status = get_post_status( $product_id );
-            if ( ! $product_status ) {
-                $warnings[] = 'Linked product ' . $product_id . ' for course ' . $course->ID . ' not found';
-                if ( ! isset( $analysis['stats']['missing_product'] ) ) $analysis['stats']['missing_product'] = 0;
-                $analysis['stats']['missing_product']++;
+            if ( $product_status ) {
+                $has_product = true;
+            } else {
+                $product_id = null;
+                $product_status = null;
             }
+        }
 
+        if ( ! $has_product ) {
+            $candidates = $this->reverse_lookup_products( (int)$course->ID );
+            if ( ! empty( $candidates ) ) {
+                $used_reverse_match = true;
+                $analysis['stats']['reverse_matches_used']++;
+                $priority_map = array( 'publish'=>1, 'draft'=>2, 'private'=>3 );
+                $chosen_id = null;
+                $chosen_status = null;
+                $chosen_priority = 999;
+                $candidate_list = array();
+                foreach ( $candidates as $pid => $st_raw ) {
+                    $norm = $this->normalize_post_status( $st_raw );
+                    if ( ! $norm ) {
+                        $warnings['product_status_unknown'][] = array( 'course_id'=>(int)$course->ID, 'product_id'=>(int)$pid, 'status'=>$st_raw );
+                    }
+                    $candidate_list[] = array( 'id'=>(int)$pid, 'status'=> $norm ? $norm : $st_raw );
+                    $prio = isset( $priority_map[ $norm ] ) ? $priority_map[ $norm ] : 4;
+                    if ( $prio < $chosen_priority ) {
+                        $chosen_priority = $prio;
+                        $chosen_id = (int)$pid;
+                        $chosen_status = $norm;
+                    }
+                }
+                if ( count( $candidate_list ) > 1 ) {
+                    $warnings['multiple_product_candidates'][] = array( 'course_id'=>(int)$course->ID, 'candidates'=>$candidate_list );
+                    $analysis['stats']['multiple_product_candidates']++;
+                }
+                if ( $chosen_id !== null ) {
+                    $product_id = $chosen_id;
+                    $product_status = $chosen_status;
+                    $has_product = true;
+                }
+            }
+        }
+
+        if ( $has_product ) {
             $product_sku = get_post_meta( $product_id, '_sku', true );
+            if ( $product_sku === '' || $product_sku === 'None' || $product_sku === 'False' ) {
+                $product_sku = null;
+                $warnings['product_has_no_sku'][] = array( 'course_id'=>(int)$course->ID, 'product_id'=>(int)$product_id );
+                $analysis['stats']['products_missing_sku']++;
+            }
             $product_old_id = get_post_meta( $product_id, '_wplms_old_product_id', true );
             if ( $product_old_id === '' ) $product_old_id = null;
 
@@ -432,10 +484,16 @@ class WPLMS_S1_Exporter {
                 }
             }
         } else {
-            if ( ! empty( $vibe['vibe_product'] ) ) {
-                $warnings[] = 'Course ' . $course->ID . ' has product meta but no valid product ID';
-                if ( ! isset( $analysis['stats']['missing_product'] ) ) $analysis['stats']['missing_product'] = 0;
-                $analysis['stats']['missing_product']++;
+            $warnings['product_not_found'][] = array( 'course_id'=>(int)$course->ID );
+        }
+
+        if ( $product_status ) {
+            $norm_status = $this->normalize_post_status( $product_status );
+            if ( $norm_status ) {
+                $product_status = $norm_status;
+            } else {
+                $warnings['product_status_unknown'][] = array( 'course_id'=>(int)$course->ID, 'product_id'=>$product_id ? (int)$product_id : null, 'status'=>$product_status );
+                $product_status = null;
             }
         }
 
@@ -445,9 +503,15 @@ class WPLMS_S1_Exporter {
             'post_status' => $product_status,
             'terms'       => $product_visibility_terms,
         );
-        if ( count( $product_ids ) > 1 ) $analysis_entry['multiple'] = true;
+        if ( $used_reverse_match ) $analysis_entry['reverse'] = true;
         if ( ! $product_id || ! $product_status ) $analysis_entry['missing'] = true;
         $analysis['products'][] = $analysis_entry;
+
+        if ( $product_id ) {
+            $analysis['stats']['courses_with_product_ref']++;
+        } else {
+            $analysis['stats']['courses_missing_product_ref']++;
+        }
 
         // subscription flags without WC product
         if ( !$renewal_enabled ) {
@@ -658,9 +722,17 @@ class WPLMS_S1_Exporter {
         $cid2 = (int) get_post_meta($course->ID, 'vibe_certificate_template', true);
         if ($cid2) $cert_ids[] = $cid2;
         $cert_ids = array_values(array_unique(array_filter($cert_ids)));
+        $course_cert_id = null;
+        $course_cert_slug = null;
+        $course_cert_title = null;
         foreach ($cert_ids as $cid) {
             $cert = get_post($cid);
             if ($cert) {
+                if ($course_cert_id === null) {
+                    $course_cert_id = (int)$cert->ID;
+                    $course_cert_slug = $cert->post_name;
+                    $course_cert_title = $cert->post_title;
+                }
                 $bg_id  = (int) get_post_meta($cert->ID, 'vibe_background_image', true);
                 $bg_url = $bg_id ? wp_get_attachment_url($bg_id) : null;
                 $certificates[] = array(
@@ -702,6 +774,7 @@ class WPLMS_S1_Exporter {
             'product_inconsistent' => $product_inconsistent,
             'cta_label' => $cta_label,
             'cta_url'   => $cta_url,
+            'title'     => $course->post_title,
             'post'   => array(
                 'post_title'     => $course->post_title,
                 'post_name'      => $course->post_name,
@@ -748,6 +821,11 @@ class WPLMS_S1_Exporter {
             'enrollments'    => $enrollments,
             'media'          => $media,
         );
+        if ( $course_cert_id !== null ) {
+            $course_entry['certificate_old_id'] = $course_cert_id;
+            $course_entry['certificate_slug'] = $course_cert_slug;
+            $course_entry['certificate_title'] = $course_cert_title;
+        }
         $commerce = array(
             'product_sku'    => $product_sku,
             'product_status' => $product_status,
@@ -764,6 +842,35 @@ class WPLMS_S1_Exporter {
         }
 
         return $course_entry;
+    }
+
+    private function reverse_lookup_products( $course_id ) {
+        global $wpdb;
+        $like = '%"' . intval( $course_id ) . '"%';
+        $sql = $wpdb->prepare(
+            "SELECT p.ID, p.post_status, p.post_type, p.post_parent FROM {$wpdb->posts} p JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id WHERE pm.meta_key = 'vibe_courses' AND pm.meta_value LIKE %s",
+            $like
+        );
+        $rows = $wpdb->get_results( $sql );
+        $out = array();
+        if ( is_array( $rows ) ) {
+            foreach ( $rows as $row ) {
+                $pid = (int) $row->ID;
+                $status = $row->post_status;
+                if ( $row->post_type === 'product_variation' && $row->post_parent ) {
+                    $pid = (int) $row->post_parent;
+                    $p = get_post( $pid );
+                    if ( $p ) $status = $p->post_status;
+                }
+                $out[ $pid ] = $status;
+            }
+        }
+        return $out;
+    }
+
+    private function normalize_post_status( $status ) {
+        $allowed = array( 'publish', 'draft', 'private', 'pending', 'future' );
+        return in_array( $status, $allowed, true ) ? $status : null;
     }
 
     /** ---------- Orphan quizzes detection ---------- */
@@ -958,7 +1065,7 @@ class WPLMS_S1_Exporter {
                     if ( is_array($maybe) ) {
                         foreach ($maybe as $p) if ( is_numeric($p) ) $cands[] = intval($p);
                     } elseif ($val !== '') {
-                        $warnings[] = "Unserialize unit assignment failed: unit {$unit_id} key {$k}";
+                        $warnings['generic'][] = "Unserialize unit assignment failed: unit {$unit_id} key {$k}";
                     }
                 }
             }
@@ -1005,7 +1112,7 @@ class WPLMS_S1_Exporter {
         if (is_string($val)) {
             $maybe = @unserialize($val);
             if (is_array($maybe)) return $maybe;
-            if ($val !== '') $warnings[] = "Unserialize curriculum failed for course {$course_id}";
+            if ($val !== '') $warnings['generic'][] = "Unserialize curriculum failed for course {$course_id}";
         }
         return array();
     }
