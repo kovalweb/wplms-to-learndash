@@ -77,7 +77,7 @@ add_action( 'init', function () {
     }
 } );
 
-// Optional: WP‑CLI command for local usage: wp wplms-s1 import <path.json> [--dry]
+// Optional: WP‑CLI command for local usage: wp wplms-s1 import --file=<path.json> [--dry]
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
     \WP_CLI::add_command( 'wplms-s1', new class {
         /**
@@ -85,21 +85,32 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
          *
          * ## OPTIONS
          *
-         * <path>
+         * --file=<path>
          * : Absolute path to JSON file.
          *
          * [--dry]
          * : Analyze only; do not create posts.
          */
         public function import( $args, $assoc ) {
-            list( $path ) = $args;
-            $dry = isset( $assoc['dry'] );
+            $path = $assoc['file'] ?? '';
+            if ( ! $path ) {
+                \WP_CLI::error( 'Missing --file parameter.' );
+            }
+            if ( ! file_exists( $path ) ) {
+                \WP_CLI::error( 'File not found.' );
+            }
+            $payload = json_decode( file_get_contents( $path ), true );
+            if ( JSON_ERROR_NONE !== json_last_error() || ! is_array( $payload ) ) {
+                \WP_CLI::error( 'Failed to decode JSON: ' . json_last_error_msg() );
+            }
+
+            $dry      = isset( $assoc['dry'] );
             $logger   = new \WPLMS_S1I\Logger();
             $idmap    = new \WPLMS_S1I\IdMap();
             $importer = new \WPLMS_S1I\Importer( $logger, $idmap );
             $importer->set_dry_run( $dry );
             try {
-                $stats = $importer->run( $path );
+                $stats = $importer->run( $payload );
                 \WP_CLI::success( sprintf(
                     'Media: %d %d %d',
                     $stats['images_downloaded'] ?? 0,
