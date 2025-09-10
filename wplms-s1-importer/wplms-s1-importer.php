@@ -122,6 +122,213 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
                 \WP_CLI::error( $e->getMessage() );
             }
         }
+
+        /**
+         * Simulate an import and output planned actions.
+         *
+         * ## OPTIONS
+         *
+         * --file=<path>
+         * : Absolute path to JSON file.
+         */
+        public function simulate( $args, $assoc ) {
+            $path = $assoc['file'] ?? '';
+            if ( ! $path ) {
+                \WP_CLI::error( 'Missing --file parameter.' );
+            }
+            if ( ! file_exists( $path ) ) {
+                \WP_CLI::error( 'File not found.' );
+            }
+            $payload = json_decode( file_get_contents( $path ), true );
+            if ( JSON_ERROR_NONE !== json_last_error() || ! is_array( $payload ) ) {
+                \WP_CLI::error( 'Failed to decode JSON: ' . json_last_error_msg() );
+            }
+
+            $logger   = new \WPLMS_S1I\Logger();
+            $idmap    = new \WPLMS_S1I\IdMap();
+            $importer = new \WPLMS_S1I\Importer( $logger, $idmap );
+            $importer->set_dry_run( true );
+            try {
+                $importer->run( $payload );
+            } catch ( \Throwable $e ) {
+                \WP_CLI::error( $e->getMessage() );
+            }
+
+            $root_dir   = dirname( WPLMS_S1I_DIR );
+            $csv_dir    = $root_dir . '/csv';
+            $report_dir = $root_dir . '/reports';
+            if ( ! is_dir( $csv_dir ) ) {
+                wp_mkdir_p( $csv_dir );
+            }
+            if ( ! is_dir( $report_dir ) ) {
+                wp_mkdir_p( $report_dir );
+            }
+
+            $counts = [
+                'courses'             => [ 'create' => 0, 'update' => 0, 'skip' => 0 ],
+                'orphans_units'       => [ 'create' => 0, 'update' => 0, 'skip' => 0 ],
+                'orphans_quizzes'     => [ 'create' => 0, 'update' => 0, 'skip' => 0 ],
+                'orphans_assignments' => [ 'create' => 0, 'update' => 0, 'skip' => 0 ],
+                'orphans_certificates'=> [ 'create' => 0, 'update' => 0, 'skip' => 0 ],
+            ];
+
+            $courses      = (array) \WPLMS_S1I\array_get( $payload, 'courses', [] );
+            $course_rows  = [];
+            $link_reasons = [];
+
+            foreach ( $courses as $course ) {
+                $old_id = (int) \WPLMS_S1I\array_get( $course, 'old_id', 0 );
+                $slug   = \WPLMS_S1I\normalize_slug( \WPLMS_S1I\array_get( $course, 'current_slug', \WPLMS_S1I\array_get( $course, 'post.post_name', '' ) ) );
+                $title  = \WPLMS_S1I\array_get( $course, 'title', \WPLMS_S1I\array_get( $course, 'post.post_title', '' ) );
+                $existing = $idmap->get( 'courses', $old_id );
+                if ( ! $existing && $slug ) {
+                    $f = get_posts( [
+                        'post_type'   => 'sfwd-courses',
+                        'name'        => $slug,
+                        'post_status' => 'any',
+                        'numberposts' => 1,
+                        'fields'      => 'ids',
+                    ] );
+                    if ( $f ) {
+                        $existing = (int) $f[0];
+                    }
+                }
+                if ( ! $slug ) {
+                    $action = 'skip';
+                } elseif ( $existing ) {
+                    $action = 'update';
+                } else {
+                    $action = 'create';
+                }
+                $counts['courses'][ $action ]++;
+
+                $sku        = \WPLMS_S1I\array_get( $course, 'commerce.product_sku', '' );
+                $product_id = 0;
+                $reason     = 'none';
+                if ( $sku && function_exists( 'wc_get_product_id_by_sku' ) ) {
+                    $pid = (int) \wc_get_product_id_by_sku( $sku );
+                    if ( $pid ) {
+                        $product_id = $pid;
+                        $reason     = 'sku';
+                    } else {
+                        $reason = 'sku_not_found';
+                    }
+                }
+                if ( ! $product_id ) {
+                    $old_pid = (int) \WPLMS_S1I\array_get( $course, 'meta.product_id', 0 );
+                    if ( $old_pid ) {
+                        $found = get_posts( [
+                            'post_type'   => 'product',
+                            'post_status' => 'any',
+                            'meta_key'    => '_wplms_old_product_id',
+                            'meta_value'  => $old_pid,
+                            'fields'      => 'ids',
+                            'numberposts' => 1,
+                        ] );
+                        if ( $found ) {
+                            $product_id = (int) $found[0];
+                            $reason     = 'old_id';
+                        }
+                    }
+                }
+                if ( ! $product_id && $slug ) {
+                    $found = get_posts( [
+                        'post_type'   => 'product',
+                        'post_status' => 'any',
+                        'name'        => $slug,
+                        'fields'      => 'ids',
+                        'numberposts' => 1,
+                    ] );
+                    if ( $found ) {
+                        $product_id = (int) $found[0];
+                        $reason     = 'slug';
+                    }
+                }
+                if ( ! $product_id && $title ) {
+                    $page = get_page_by_title( $title, OBJECT, 'product' );
+                    if ( $page ) {
+                        $product_id = (int) $page->ID;
+                        $reason     = 'title';
+                    }
+                }
+                if ( ! $product_id && $reason === 'none' ) {
+                    $reason = 'not_found';
+                }
+                $status = $product_id ? get_post_status( $product_id ) : '';
+
+                $link_reasons[ $reason ] = ( $link_reasons[ $reason ] ?? 0 ) + 1;
+                $course_rows[] = [ $old_id, $slug, $title, $action, $product_id, $status, $reason ];
+            }
+
+            $fh = fopen( $csv_dir . '/plan_courses_linking.csv', 'w' );
+            if ( $fh ) {
+                fputcsv( $fh, [ 'old_id', 'slug', 'title', 'action', 'product_id', 'product_status', 'reason' ] );
+                foreach ( $course_rows as $row ) {
+                    fputcsv( $fh, $row );
+                }
+                fclose( $fh );
+            }
+
+            $orphans = (array) \WPLMS_S1I\array_get( $payload, 'orphans', [] );
+            $map_orphans = [
+                'units'        => 'sfwd-lessons',
+                'quizzes'      => 'sfwd-quiz',
+                'assignments'  => 'sfwd-assignment',
+                'certificates' => 'sfwd-certificates',
+            ];
+
+            foreach ( $map_orphans as $key => $ptype ) {
+                $rows = [];
+                foreach ( (array) \WPLMS_S1I\array_get( $orphans, $key, [] ) as $item ) {
+                    $old_id = (int) \WPLMS_S1I\array_get( $item, 'old_id', 0 );
+                    $slug   = \WPLMS_S1I\normalize_slug( \WPLMS_S1I\array_get( $item, 'current_slug', \WPLMS_S1I\array_get( $item, 'slug', \WPLMS_S1I\array_get( $item, 'post.post_name', '' ) ) ) );
+                    $title  = \WPLMS_S1I\array_get( $item, 'title', \WPLMS_S1I\array_get( $item, 'post.post_title', '' ) );
+                    $map_key = $key === 'units' ? 'units' : $key;
+                    $existing = $idmap->get( $map_key, $old_id );
+                    if ( ! $existing && $slug ) {
+                        $f = get_posts( [
+                            'post_type'   => $ptype,
+                            'name'        => $slug,
+                            'post_status' => 'any',
+                            'numberposts' => 1,
+                            'fields'      => 'ids',
+                        ] );
+                        if ( $f ) {
+                            $existing = (int) $f[0];
+                        }
+                    }
+                    if ( ! $slug ) {
+                        $action = 'skip';
+                    } elseif ( $existing ) {
+                        $action = 'update';
+                    } else {
+                        $action = 'create';
+                    }
+                    $counts[ 'orphans_' . $key ][ $action ]++;
+                    $rows[] = [ $old_id, $slug, $title, $action ];
+                }
+                $fh = fopen( $csv_dir . '/plan_orphans_' . $key . '.csv', 'w' );
+                if ( $fh ) {
+                    fputcsv( $fh, [ 'old_id', 'slug', 'title', 'action' ] );
+                    foreach ( $rows as $r ) {
+                        fputcsv( $fh, $r );
+                    }
+                    fclose( $fh );
+                }
+            }
+
+            $report = "# Import Plan\n\n|Entity|Create|Update|Skip|\n|---|---|---|---|\n";
+            foreach ( $counts as $entity => $c ) {
+                $report .= sprintf( "|%s|%d|%d|%d|\n", $entity, $c['create'], $c['update'], $c['skip'] );
+            }
+            $report .= "\n## Product Linking\n\n|Reason|Count|\n|---|---|\n";
+            foreach ( $link_reasons as $reason => $cnt ) {
+                $report .= sprintf( "|%s|%d|\n", $reason, $cnt );
+            }
+            file_put_contents( $report_dir . '/IMPORT_PLAN.md', $report );
+
+            \WP_CLI::success( 'Simulation complete' );
+        }
     } );
     \WP_CLI::add_command( 'wplms2ld', new class {
         public function dedupe_certificates() {
