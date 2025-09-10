@@ -501,16 +501,12 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
                 'certificates_attached'        => (int) ( $stats['certificates_attached'] ?? 0 ),
                 'certificates_missing'         => (int) ( $stats['certificates_missing'] ?? 0 ),
                 'certificates_already_attached'=> (int) ( $stats['certificates_already_attached'] ?? 0 ),
-                'orphans_imported_units'       => (int) ( $stats['orphans_imported']['units'] ?? 0 ),
-                'orphans_imported_quizzes'     => (int) ( $stats['orphans_imported']['quizzes'] ?? 0 ),
-                'orphans_imported_assignments' => (int) ( $stats['orphans_imported']['assignments'] ?? 0 ),
-                'orphans_imported_certificates'=> (int) ( $stats['orphans_imported']['certificates'] ?? 0 ),
             ];
             $report = "# Import Result\n\n|Metric|Count|\n|---|---|\n";
             foreach ( $metrics as $key => $val ) {
                 $report .= sprintf( "|%s|%d|\n", $key, $val );
             }
-            file_put_contents( $report_dir . '/IMPORT_RESULT.md', $report );
+            // orphans_imported counts will be added later
 
             // Courses without product link
             $course_ids = get_posts( [
@@ -550,12 +546,13 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
             }
 
             // Orphans imported
-            $orphan_types = [
+            $orphan_types  = [
                 'units'        => 'sfwd-lessons',
                 'quizzes'      => 'sfwd-quiz',
                 'assignments'  => 'sfwd-assignment',
                 'certificates' => 'sfwd-certificates',
             ];
+            $orphan_counts = [];
             foreach ( $orphan_types as $key => $ptype ) {
                 $items = get_posts( [
                     'post_type'   => $ptype,
@@ -565,15 +562,42 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
                     'meta_key'    => '_hv_orphan',
                     'meta_value'  => '1',
                 ] );
+                $orphan_counts[ $key ] = count( $items );
                 $fh = fopen( $csv_dir . "/post_orphans_imported_{$key}.csv", 'w' );
                 if ( $fh ) {
-                    fputcsv( $fh, [ 'id', 'slug', 'title', 'status' ] );
+                    fputcsv( $fh, [ 'id', 'slug', 'title', 'status', 'note' ] );
                     foreach ( $items as $id ) {
-                        fputcsv( $fh, [ $id, get_post_field( 'post_name', $id ), get_post_field( 'post_title', $id ), get_post_status( $id ) ] );
+                        $note     = '';
+                        $noteKeys = [ '_hv_relink_note', '_hv_relink_notes', '_hv_relink' ];
+                        foreach ( $noteKeys as $nk ) {
+                            $note = get_post_meta( $id, $nk, true );
+                            if ( is_array( $note ) ) {
+                                $note = wp_json_encode( $note );
+                            }
+                            if ( ! empty( $note ) ) {
+                                break;
+                            }
+                        }
+                        fputcsv( $fh, [
+                            $id,
+                            get_post_field( 'post_name', $id ),
+                            get_post_field( 'post_title', $id ),
+                            get_post_status( $id ),
+                            $note,
+                        ] );
                     }
                     fclose( $fh );
                 }
             }
+
+            if ( $orphan_counts ) {
+                $report .= "\n## orphans_imported\n\n|Type|Count|\n|---|---|\n";
+                foreach ( $orphan_counts as $k => $v ) {
+                    $report .= sprintf( "|%s|%d|\n", $k, $v );
+                }
+            }
+
+            file_put_contents( $report_dir . '/IMPORT_RESULT.md', $report );
 
             // Idempotency check
             $importer2 = new \WPLMS_S1I\Importer( $logger, new \WPLMS_S1I\IdMap() );
