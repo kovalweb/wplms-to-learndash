@@ -6,6 +6,7 @@ class Importer {
     private $idmap;
     private $dry_run = false;
     private $recheck = false;
+    private $suppress_emails = false;
     private $stats_ref = null;
     private $term_index = [
         'course-cat' => [ 'slug' => [], 'id' => [] ],
@@ -19,16 +20,20 @@ class Importer {
 
     public function set_dry_run( $dry ) { $this->dry_run = (bool) $dry; }
     public function set_recheck( $flag ) { $this->recheck = (bool) $flag; }
+    public function set_disable_emails( $flag ) { $this->suppress_emails = (bool) $flag; }
 
     public function run( array $payload ) {
         if ( ! is_array( $payload ) ) {
             throw new \RuntimeException( 'Invalid import payload' );
         }
 
-        // Temporarily suppress emails and external notifications during import.
-        \add_filter( 'pre_wp_mail', '__return_false', PHP_INT_MAX );
-        \add_filter( 'learndash_notifications_enabled', '__return_false', PHP_INT_MAX );
-        \add_filter( 'ld_notifications_send_emails', '__return_false', PHP_INT_MAX );
+        $suppress = $this->suppress_emails;
+        if ( $suppress ) {
+            // Temporarily suppress emails and external notifications during import.
+            \add_filter( 'pre_wp_mail', '__return_false', PHP_INT_MAX );
+            \add_filter( 'learndash_notifications_enabled', '__return_false', PHP_INT_MAX );
+            \add_filter( 'ld_notifications_send_emails', '__return_false', PHP_INT_MAX );
+        }
 
         try {
         $stats = [
@@ -264,9 +269,11 @@ class Importer {
         $this->stats_ref = null;
         return $result;
         } finally {
-            \remove_filter( 'pre_wp_mail', '__return_false', PHP_INT_MAX );
-            \remove_filter( 'learndash_notifications_enabled', '__return_false', PHP_INT_MAX );
-            \remove_filter( 'ld_notifications_send_emails', '__return_false', PHP_INT_MAX );
+            if ( $suppress ) {
+                \remove_filter( 'pre_wp_mail', '__return_false', PHP_INT_MAX );
+                \remove_filter( 'learndash_notifications_enabled', '__return_false', PHP_INT_MAX );
+                \remove_filter( 'ld_notifications_send_emails', '__return_false', PHP_INT_MAX );
+            }
         }
     }
 
