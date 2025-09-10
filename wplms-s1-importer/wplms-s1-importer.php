@@ -119,5 +119,111 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
             \WP_CLI::success( sprintf( 'Groups: %d, deleted: %d', (int) \WPLMS_S1I\array_get( $summary, 'groups', 0 ), (int) \WPLMS_S1I\array_get( $summary, 'deleted', 0 ) ) );
         }
     } );
+    \WP_CLI::add_command( 'wplms-import', new class {
+        /**
+         * Audit an export JSON and generate reports.
+         *
+         * ## OPTIONS
+         *
+         * --file=<path>
+         * : Absolute path to JSON file to audit.
+         */
+        public function audit_json( $args, $assoc ) {
+            $path = $assoc['file'] ?? '';
+            if ( ! $path ) {
+                \WP_CLI::error( 'Missing --file parameter.' );
+            }
+            if ( ! file_exists( $path ) ) {
+                \WP_CLI::error( 'File not found.' );
+            }
+            $data = json_decode( file_get_contents( $path ), true );
+            if ( ! is_array( $data ) ) {
+                \WP_CLI::error( 'Invalid JSON.' );
+            }
+
+            $courses   = is_array( $data['courses'] ?? null ) ? $data['courses'] : [];
+            $orphans   = is_array( $data['orphans'] ?? null ) ? $data['orphans'] : [];
+            $root_dir  = dirname( WPLMS_S1I_DIR );
+            $csv_dir   = $root_dir . '/csv';
+            $report_dir = $root_dir . '/reports';
+            if ( ! is_dir( $csv_dir ) ) {
+                wp_mkdir_p( $csv_dir );
+            }
+            if ( ! is_dir( $report_dir ) ) {
+                wp_mkdir_p( $report_dir );
+            }
+
+            $courses_with_product    = 0;
+            $courses_without_product = [];
+            foreach ( $courses as $course ) {
+                $has_product = ! empty( $course['meta']['has_product'] ) && ! empty( $course['meta']['product_id'] );
+                if ( $has_product ) {
+                    $courses_with_product++;
+                } else {
+                    $courses_without_product[] = [
+                        'id'    => $course['id'] ?? ( $course['old_id'] ?? '' ),
+                        'slug'  => $course['slug'] ?? '',
+                        'title' => $course['title'] ?? '',
+                    ];
+                }
+            }
+            $courses_total       = count( $courses );
+            $courses_without_cnt = $courses_total - $courses_with_product;
+
+            // Metrics and report
+            $metrics = [
+                'courses_total'               => $courses_total,
+                'courses_with_product_link'   => $courses_with_product,
+                'courses_without_product_link'=> $courses_without_cnt,
+            ];
+            foreach ( $orphans as $type => $items ) {
+                if ( is_array( $items ) ) {
+                    $metrics[ 'orphans_' . $type ] = count( $items );
+                }
+            }
+
+            $report = "# Import JSON Audit\n\n|Metric|Count|\n|---|---|\n";
+            foreach ( $metrics as $key => $val ) {
+                $report .= sprintf( "|%s|%d|\n", $key, $val );
+            }
+            file_put_contents( $report_dir . '/IMPORT_JSON_AUDIT.md', $report );
+
+            // CSV for courses without product link
+            $fh = fopen( $csv_dir . '/json_courses_without_product_link.csv', 'w' );
+            if ( $fh ) {
+                fputcsv( $fh, [ 'id', 'slug', 'title' ] );
+                foreach ( $courses_without_product as $row ) {
+                    fputcsv( $fh, $row );
+                }
+                fclose( $fh );
+            }
+
+            // CSVs for orphans
+            foreach ( $orphans as $type => $items ) {
+                if ( ! is_array( $items ) ) {
+                    continue;
+                }
+                $path = sprintf( '%s/json_orphans_%s.csv', $csv_dir, $type );
+                $fh   = fopen( $path, 'w' );
+                if ( ! $fh ) {
+                    continue;
+                }
+                fputcsv( $fh, [ 'old_id', 'slug', 'title', 'status', 'reason', 'edit_link' ] );
+                foreach ( $items as $item ) {
+                    fputcsv( $fh, [
+                        $item['old_id'] ?? '',
+                        $item['slug'] ?? '',
+                        $item['title'] ?? '',
+                        $item['status'] ?? '',
+                        $item['reason'] ?? '',
+                        $item['edit_link'] ?? '',
+                    ] );
+                }
+                fclose( $fh );
+            }
+
+            \WP_CLI::success( 'Audit complete' );
+        }
+    } );
 }
 
