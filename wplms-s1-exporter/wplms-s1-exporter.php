@@ -169,7 +169,7 @@ class WPLMS_S1_Exporter {
             ),
             'courses' => array(),
             'taxonomies' => array(),
-            'orphans' => array( 'units'=>array(), 'assignments'=>array(), 'quizzes'=>array() ),
+            'orphans' => array( 'units'=>array(), 'assignments'=>array(), 'quizzes'=>array(), 'certificates'=>array() ),
         );
 
         $analysis = array(
@@ -194,9 +194,10 @@ class WPLMS_S1_Exporter {
             ),
         );
 
-        $used_units = array();
+        $used_units        = array();
         $used_assignments = array();
-        $taxonomy_terms = array( 'course-cat' => array(), 'course-tag' => array() );
+        $used_certificates = array();
+        $taxonomy_terms   = array( 'course-cat' => array(), 'course-tag' => array() );
 
         foreach ( $courses as $course ) {
             $one = $this->export_single_course($course, $include_enrollments, !$exclude_raw_meta, $discovery, $warnings, $unit_to_courses, $analysis, $taxonomy_terms);
@@ -210,6 +211,7 @@ class WPLMS_S1_Exporter {
 
             foreach ($one['units'] as $u) $used_units[$u['old_id']] = true;
             foreach ($one['assignments'] as $a) $used_assignments[$a['old_id']] = true;
+            foreach ($one['certificates'] as $c) $used_certificates[$c['old_id']] = true;
 
             $export['courses'][] = $one;
         }
@@ -231,7 +233,7 @@ class WPLMS_S1_Exporter {
             // Orphan units with assignments but not in any course
             $units_all = get_posts(array(
                 'post_type'=>'unit',
-                'post_status'=>array('publish','draft','pending','private'),
+                'post_status'=>array('publish','draft','pending','private','future'),
                 'numberposts'=>-1,
                 'fields'=>'ids',
                 'suppress_filters'=>true,
@@ -248,10 +250,12 @@ class WPLMS_S1_Exporter {
                 $parent  = (int) get_post_field( 'post_parent', $uid );
                 $entry   = array(
                     'old_id'      => (int) $up->ID,
-                    'post'        => array( 'post_title' => $up->post_title, 'status' => $up->post_status ),
+                    'slug'        => $up->post_name,
+                    'title'       => $up->post_title,
                     'status'      => $up->post_status,
                     'assignments' => array_values( array_unique( $ass_ids ) ),
                     'reason'      => 'no_course_link',
+                    'edit_link'   => get_edit_post_link( $uid ),
                 );
                 if ( $parent > 0 ) {
                     $entry['parent_course_old_id'] = $parent;
@@ -269,7 +273,7 @@ class WPLMS_S1_Exporter {
             // Orphan assignments not used anywhere
             $assign_posts = get_posts(array(
                 'post_type'=>'wplms-assignment',
-                'post_status'=>array('publish','draft','pending','private'),
+                'post_status'=>array('publish','draft','pending','private','future'),
                 'numberposts'=>-1,
                 'suppress_filters'=>true,
             ));
@@ -277,9 +281,12 @@ class WPLMS_S1_Exporter {
                 if ( ! isset($used_assignments[$ap->ID]) ) {
                     $parent = (int) get_post_field('post_parent', $ap->ID);
                     $entry = array(
-                        'old_id' => (int)$ap->ID,
-                        'post'   => array( 'post_title'=>$ap->post_title, 'status'=>$ap->post_status ),
-                        'reason' => 'not_in_curriculum',
+                        'old_id'  => (int)$ap->ID,
+                        'slug'    => $ap->post_name,
+                        'title'   => $ap->post_title,
+                        'status'  => $ap->post_status,
+                        'reason'  => 'not_in_curriculum',
+                        'edit_link' => get_edit_post_link( $ap->ID ),
                     );
                     if ($parent > 0) $entry['parent_course_old_id'] = $parent;
                     if ($export_mode === 'discover_all' || ($parent > 0 && in_array($parent, $parents, true))) {
@@ -288,10 +295,29 @@ class WPLMS_S1_Exporter {
                 }
             }
 
+            // Orphan certificates not attached to any course
+            $cert_posts = get_posts(array(
+                'post_type'   => 'certificate',
+                'post_status' => array('publish','draft','pending','private','future'),
+                'numberposts' => -1,
+                'suppress_filters' => true,
+            ));
+            foreach ( $cert_posts as $cp ) {
+                if ( isset( $used_certificates[ $cp->ID ] ) ) continue;
+                $export['orphans']['certificates'][] = array(
+                    'old_id'    => (int) $cp->ID,
+                    'slug'      => $cp->post_name,
+                    'title'     => $cp->post_title,
+                    'status'    => $cp->post_status,
+                    'reason'    => 'no_course_link',
+                    'edit_link' => get_edit_post_link( $cp->ID ),
+                );
+            }
+
             // Orphan quizzes that reference missing courses
             $export['orphans']['quizzes'] = $this->find_quizzes_referencing_missing_courses($parents, $warnings, $export_mode);
         } else {
-            $export['orphans'] = array( 'units'=>array(), 'assignments'=>array(), 'quizzes'=>array() );
+            $export['orphans'] = array( 'units'=>array(), 'assignments'=>array(), 'quizzes'=>array(), 'certificates'=>array() );
         }
 
         // add orphans to analysis and finalize meta stats
@@ -322,6 +348,115 @@ class WPLMS_S1_Exporter {
                 fclose( $fh );
             }
         }
+
+        // Write orphan CSVs
+        $csv_dir = __DIR__;
+        if ( ! empty( $export['orphans']['units'] ) ) {
+            $fh = fopen( $csv_dir . '/orphans_units.csv', 'w' );
+            if ( $fh ) {
+                fputcsv( $fh, array( 'wp_id', 'post_title', 'post_status', 'reason', 'edit_link' ) );
+                foreach ( $export['orphans']['units'] as $row ) {
+                    fputcsv( $fh, array( $row['old_id'], $row['title'], $row['status'], $row['reason'], $row['edit_link'] ) );
+                }
+                fclose( $fh );
+            }
+        }
+        if ( ! empty( $export['orphans']['certificates'] ) ) {
+            $fh = fopen( $csv_dir . '/orphans_certificates.csv', 'w' );
+            if ( $fh ) {
+                fputcsv( $fh, array( 'wp_id', 'post_title', 'post_status', 'reason', 'edit_link' ) );
+                foreach ( $export['orphans']['certificates'] as $row ) {
+                    fputcsv( $fh, array( $row['old_id'], $row['title'], $row['status'], $row['reason'], $row['edit_link'] ) );
+                }
+                fclose( $fh );
+            }
+        }
+        if ( ! empty( $export['orphans']['quizzes'] ) ) {
+            $fh = fopen( $csv_dir . '/orphans_quizzes.csv', 'w' );
+            if ( $fh ) {
+                fputcsv( $fh, array( 'wp_id', 'post_title', 'post_status', 'reason', 'edit_link' ) );
+                foreach ( $export['orphans']['quizzes'] as $row ) {
+                    $title = isset( $row['title'] ) ? $row['title'] : '';
+                    $status = isset( $row['status'] ) ? $row['status'] : '';
+                    $edit = isset( $row['edit_link'] ) ? $row['edit_link'] : '';
+                    fputcsv( $fh, array( $row['old_id'], $title, $status, $row['reason'], $edit ) );
+                }
+                fclose( $fh );
+            }
+        }
+        if ( ! empty( $export['orphans']['assignments'] ) ) {
+            $fh = fopen( $csv_dir . '/orphans_assignments.csv', 'w' );
+            if ( $fh ) {
+                fputcsv( $fh, array( 'wp_id', 'post_title', 'post_status', 'reason', 'edit_link' ) );
+                foreach ( $export['orphans']['assignments'] as $row ) {
+                    fputcsv( $fh, array( $row['old_id'], $row['title'], $row['status'], $row['reason'], $row['edit_link'] ) );
+                }
+                fclose( $fh );
+            }
+        }
+
+        // Stats block
+        $statuses_list = array( 'publish','draft','private','pending','future' );
+        $count_fn = function( $pt ) use ( $statuses_list ) {
+            $obj = wp_count_posts( $pt );
+            $res = array();
+            foreach ( $statuses_list as $st ) {
+                $res[$st] = isset( $obj->$st ) ? (int) $obj->$st : 0;
+            }
+            return $res;
+        };
+        $wp_counts = array(
+            'units'        => $count_fn( 'unit' ),
+            'certificates' => $count_fn( 'certificate' ),
+            'quizzes'      => $count_fn( 'quiz' ),
+            'assignments'  => $count_fn( 'wplms-assignment' ),
+        );
+        $export_counts = array(
+            'courses' => $stats['courses'],
+            'linked' => array(
+                'units'        => $stats['units'],
+                'certificates' => $stats['certificates'],
+                'quizzes'      => $stats['quizzes'],
+                'assignments'  => $stats['assignments'],
+            ),
+            'orphans' => array(
+                'units'        => count( $export['orphans']['units'] ),
+                'certificates' => count( $export['orphans']['certificates'] ),
+                'quizzes'      => count( $export['orphans']['quizzes'] ),
+                'assignments'  => count( $export['orphans']['assignments'] ),
+            ),
+        );
+        $sum_check = array();
+        foreach ( array( 'units','certificates','quizzes','assignments' ) as $t ) {
+            $sum_check[ $t . '_ok' ] = (
+                $export_counts['linked'][ $t ] + $export_counts['orphans'][ $t ] ===
+                array_sum( $wp_counts[ $t ] )
+            );
+        }
+
+        $export['mode']  = $export_mode;
+        $export['stats'] = array(
+            'wp_counts'     => $wp_counts,
+            'export_counts' => $export_counts,
+            'sum_check'     => $sum_check,
+        );
+
+        // STATS.md
+        $md = "# Stats\n\n";
+        $md .= "| Type | WP Total | Linked | Orphans | OK |\n";
+        $md .= "|---|---|---|---|---|\n";
+        foreach ( array( 'units','certificates','quizzes','assignments' ) as $t ) {
+            $total = array_sum( $wp_counts[ $t ] );
+            $md .= sprintf(
+                "| %s | %d | %d | %d | %s |\n",
+                $t,
+                $total,
+                $export_counts['linked'][ $t ],
+                $export_counts['orphans'][ $t ],
+                $sum_check[ $t . '_ok' ] ? 'yes' : 'no'
+            );
+        }
+        file_put_contents( $csv_dir . '/STATS.md', $md );
 
         $export['export_meta']['stats']     = $stats;
         $export['export_meta']['discovery'] = $discovery;
@@ -978,8 +1113,13 @@ class WPLMS_S1_Exporter {
             $has_parent = !empty(array_intersect($all, $parent_course_ids));
             if (!empty($missing)) {
                 if ($export_mode === 'discover_all' || $has_parent) {
+                    $qp = get_post( $qid );
                     $out[] = array(
                         'old_id'          => (int)$qid,
+                        'slug'            => $qp ? $qp->post_name : '',
+                        'title'           => $qp ? $qp->post_title : '',
+                        'status'          => $qp ? $qp->post_status : '',
+                        'edit_link'       => $qp ? get_edit_post_link( $qid ) : '',
                         'links'           => $links,
                         'missing_courses' => array_values(array_unique($missing)),
                         'reason'          => 'missing_parent_deleted',

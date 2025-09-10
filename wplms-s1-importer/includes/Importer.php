@@ -43,6 +43,7 @@ class Importer {
             'orphans_units'         => 0,
             'orphans_quizzes'       => 0,
             'orphans_assignments'   => 0,
+            'orphans_certificates'  => 0,
             'access_free'           => 0,
             'access_paid'           => 0,
             'access_closed'         => 0,
@@ -67,6 +68,8 @@ class Importer {
             'certificates_missing'    => 0,
             'certificates_already_attached' => 0,
             'certificates_missing_examples' => [],
+            'orphans_imported' => [ 'units'=>0, 'quizzes'=>0, 'assignments'=>0, 'certificates'=>0 ],
+            'orphans_skipped'  => [ 'units'=>0, 'quizzes'=>0, 'assignments'=>0, 'certificates'=>0 ],
         ];
 
         $this->stats_ref =& $stats;
@@ -208,15 +211,43 @@ class Importer {
                     $stats['lessons_zero_duration']++;
                 }
                 $stats['orphans_units']++;
+                $stats['orphans_imported']['units']++;
+            } else {
+                $stats['orphans_skipped']['units']++;
             }
         }
         foreach ( (array) array_get( $orph, 'quizzes', [] ) as $quiz ) {
             $ok = $this->import_quiz( $quiz, 0, true );
-            if ( $ok ) $stats['orphans_quizzes']++;
+            if ( $ok ) {
+                $stats['orphans_quizzes']++;
+                $stats['orphans_imported']['quizzes']++;
+            } else {
+                $stats['orphans_skipped']['quizzes']++;
+            }
         }
         foreach ( (array) array_get( $orph, 'assignments', [] ) as $assn ) {
             $ok = $this->import_assignment( $assn, 0, 0, true );
-            if ( $ok ) $stats['orphans_assignments']++;
+            if ( $ok ) {
+                $stats['orphans_assignments']++;
+                $stats['orphans_imported']['assignments']++;
+            } else {
+                $stats['orphans_skipped']['assignments']++;
+            }
+        }
+        foreach ( (array) array_get( $orph, 'certificates', [] ) as $cert ) {
+            $cinfo = $this->import_certificate( $cert, true );
+            $cid = (int) array_get( $cinfo, 'id', 0 );
+            if ( $cid ) {
+                if ( array_get( $cinfo, 'created' ) ) {
+                    $stats['certificates_created']++;
+                } else {
+                    $stats['certificates_updated']++;
+                }
+                $stats['orphans_certificates']++;
+                $stats['orphans_imported']['certificates']++;
+            } else {
+                $stats['orphans_skipped']['certificates']++;
+            }
         }
 
         if ( ! $this->dry_run ) {
@@ -802,6 +833,7 @@ class Importer {
 
         if ( $is_orphan ) {
             \update_post_meta( $new_id, '_wplms_orphan', 1 );
+            \update_post_meta( $new_id, '_hv_orphan', 1 );
         }
 
         // slug metadata
@@ -888,7 +920,7 @@ class Importer {
 
         \update_post_meta( $new_id, '_wplms_old_id', $old_id );
         if ( $course_new_id ) { \update_post_meta( $new_id, 'course_id', (int) $course_new_id ); }
-        if ( $is_orphan ) { \update_post_meta( $new_id, '_wplms_orphan', 1 ); }
+        if ( $is_orphan ) { \update_post_meta( $new_id, '_wplms_orphan', 1 ); \update_post_meta( $new_id, '_hv_orphan', 1 ); }
         $links = (array) array_get( $quiz, 'links', [] );
         if ( ! empty( $links ) ) { \update_post_meta( $new_id, '_wplms_s1_links', $links ); }
 
@@ -985,14 +1017,16 @@ class Importer {
         if ( $lesson_new_id ) { \update_post_meta( $new_id, 'lesson_id', (int) $lesson_new_id ); }
         if ( $is_orphan ) {
             \update_post_meta( $new_id, '_wplms_orphan', 1 );
+            \update_post_meta( $new_id, '_hv_orphan', 1 );
         } else {
             \delete_post_meta( $new_id, '_wplms_orphan' );
+            \delete_post_meta( $new_id, '_hv_orphan' );
         }
 
         return true;
     }
 
-    private function import_certificate( $cert ) {
+    private function import_certificate( $cert, $is_orphan = false ) {
         $old_id = (int) array_get( $cert, 'old_id', 0 );
         $slug   = normalize_slug( array_get( $cert, 'post.post_name', '' ) );
         if ( ! $slug ) {
@@ -1073,6 +1107,10 @@ class Importer {
         }
 
         $this->idmap->set( 'certificate', $old_id, $new_id, $slug );
+        if ( $is_orphan ) {
+            \update_post_meta( $new_id, '_wplms_orphan', 1 );
+            \update_post_meta( $new_id, '_hv_orphan', 1 );
+        }
 
         return [ 'id' => $new_id, 'created' => $created ];
     }
