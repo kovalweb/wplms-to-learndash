@@ -442,6 +442,166 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
 
             \WP_CLI::success( 'Audit complete' );
         }
+
+        /**
+         * Run the importer from a JSON file and generate post-import reports.
+         *
+         * ## OPTIONS
+         *
+         * --file=<path>
+         * : Absolute path to JSON file to import.
+         *
+         * [--no-emails]
+         * : Suppress email and notification hooks during import.
+         */
+        public function run( $args, $assoc ) {
+            $path = $assoc['file'] ?? '';
+            if ( ! $path ) {
+                \WP_CLI::error( 'Missing --file parameter.' );
+            }
+            if ( ! file_exists( $path ) ) {
+                \WP_CLI::error( 'File not found.' );
+            }
+            $payload = json_decode( file_get_contents( $path ), true );
+            if ( ! is_array( $payload ) ) {
+                \WP_CLI::error( 'Invalid JSON.' );
+            }
+
+            $no_emails = isset( $assoc['no-emails'] );
+            $logger    = new \WPLMS_S1I\Logger();
+            $idmap     = new \WPLMS_S1I\IdMap();
+            $importer  = new \WPLMS_S1I\Importer( $logger, $idmap );
+            if ( $no_emails ) {
+                $importer->set_disable_emails( true );
+            }
+
+            $stats = $importer->run( $payload );
+
+            $root_dir   = dirname( WPLMS_S1I_DIR );
+            $csv_dir    = $root_dir . '/csv';
+            $report_dir = $root_dir . '/reports';
+            if ( ! is_dir( $csv_dir ) ) {
+                wp_mkdir_p( $csv_dir );
+            }
+            if ( ! is_dir( $report_dir ) ) {
+                wp_mkdir_p( $report_dir );
+            }
+
+            // Metrics report
+            $metrics = [
+                'courses_created'              => (int) ( $stats['courses_created'] ?? 0 ),
+                'courses_updated'              => (int) ( $stats['courses_updated'] ?? 0 ),
+                'lessons_created'              => (int) ( $stats['lessons_created'] ?? 0 ),
+                'lessons_updated'              => (int) ( $stats['lessons_updated'] ?? 0 ),
+                'certificates_created'         => (int) ( $stats['certificates_created'] ?? 0 ),
+                'certificates_updated'         => (int) ( $stats['certificates_updated'] ?? 0 ),
+                'skipped'                      => (int) ( $stats['skipped'] ?? 0 ),
+                'courses_linked_to_products'   => (int) ( $stats['courses_linked_to_products'] ?? 0 ),
+                'product_not_found_for_course' => (int) ( $stats['product_not_found_for_course'] ?? 0 ),
+                'certificates_attached'        => (int) ( $stats['certificates_attached'] ?? 0 ),
+                'certificates_missing'         => (int) ( $stats['certificates_missing'] ?? 0 ),
+                'certificates_already_attached'=> (int) ( $stats['certificates_already_attached'] ?? 0 ),
+                'orphans_imported_units'       => (int) ( $stats['orphans_imported']['units'] ?? 0 ),
+                'orphans_imported_quizzes'     => (int) ( $stats['orphans_imported']['quizzes'] ?? 0 ),
+                'orphans_imported_assignments' => (int) ( $stats['orphans_imported']['assignments'] ?? 0 ),
+                'orphans_imported_certificates'=> (int) ( $stats['orphans_imported']['certificates'] ?? 0 ),
+            ];
+            $report = "# Import Result\n\n|Metric|Count|\n|---|---|\n";
+            foreach ( $metrics as $key => $val ) {
+                $report .= sprintf( "|%s|%d|\n", $key, $val );
+            }
+            file_put_contents( $report_dir . '/IMPORT_RESULT.md', $report );
+
+            // Courses without product link
+            $course_ids = get_posts( [
+                'post_type'   => 'sfwd-courses',
+                'post_status' => 'any',
+                'numberposts' => -1,
+                'fields'      => 'ids',
+            ] );
+            $fh = fopen( $csv_dir . '/post_courses_without_product_link.csv', 'w' );
+            if ( $fh ) {
+                fputcsv( $fh, [ 'id', 'slug', 'title' ] );
+                foreach ( $course_ids as $cid ) {
+                    $pid = get_post_meta( $cid, 'ld_product_id', true );
+                    if ( empty( $pid ) ) {
+                        fputcsv( $fh, [ $cid, get_post_field( 'post_name', $cid ), get_post_field( 'post_title', $cid ) ] );
+                    }
+                }
+                fclose( $fh );
+            }
+
+            // Courses missing certificates
+            $fh = fopen( $csv_dir . '/post_certificates_missing.csv', 'w' );
+            if ( $fh ) {
+                fputcsv( $fh, [ 'id', 'slug', 'title' ] );
+                foreach ( $course_ids as $cid ) {
+                    $cert = 0;
+                    if ( function_exists( 'learndash_get_setting' ) ) {
+                        $cert = (int) learndash_get_setting( $cid, 'certificate' );
+                    } else {
+                        $cert = (int) get_post_meta( $cid, 'certificate', true );
+                    }
+                    if ( ! $cert ) {
+                        fputcsv( $fh, [ $cid, get_post_field( 'post_name', $cid ), get_post_field( 'post_title', $cid ) ] );
+                    }
+                }
+                fclose( $fh );
+            }
+
+            // Orphans imported
+            $orphan_types = [
+                'units'        => 'sfwd-lessons',
+                'quizzes'      => 'sfwd-quiz',
+                'assignments'  => 'sfwd-assignment',
+                'certificates' => 'sfwd-certificates',
+            ];
+            foreach ( $orphan_types as $key => $ptype ) {
+                $items = get_posts( [
+                    'post_type'   => $ptype,
+                    'post_status' => 'any',
+                    'numberposts' => -1,
+                    'fields'      => 'ids',
+                    'meta_key'    => '_hv_orphan',
+                    'meta_value'  => '1',
+                ] );
+                $fh = fopen( $csv_dir . "/post_orphans_imported_{$key}.csv", 'w' );
+                if ( $fh ) {
+                    fputcsv( $fh, [ 'id', 'slug', 'title', 'status' ] );
+                    foreach ( $items as $id ) {
+                        fputcsv( $fh, [ $id, get_post_field( 'post_name', $id ), get_post_field( 'post_title', $id ), get_post_status( $id ) ] );
+                    }
+                    fclose( $fh );
+                }
+            }
+
+            // Idempotency check
+            $importer2 = new \WPLMS_S1I\Importer( $logger, new \WPLMS_S1I\IdMap() );
+            if ( $no_emails ) {
+                $importer2->set_disable_emails( true );
+            }
+            $stats2 = $importer2->run( $payload );
+            $created_sum = (
+                (int) ( $stats2['courses_created'] ?? 0 ) +
+                (int) ( $stats2['lessons_created'] ?? 0 ) +
+                (int) ( $stats2['certificates_created'] ?? 0 ) +
+                (int) ( $stats2['assignments'] ?? 0 ) +
+                (int) ( $stats2['quizzes'] ?? 0 ) +
+                (int) ( $stats2['orphans_imported']['units'] ?? 0 ) +
+                (int) ( $stats2['orphans_imported']['quizzes'] ?? 0 ) +
+                (int) ( $stats2['orphans_imported']['assignments'] ?? 0 ) +
+                (int) ( $stats2['orphans_imported']['certificates'] ?? 0 )
+            );
+            if ( $created_sum > 0 ) {
+                \WP_CLI::warning( 'Idempotency check: created > 0' );
+                \WP_CLI::log( \wp_json_encode( $stats2 ) );
+            } else {
+                \WP_CLI::success( 'Idempotency check passed' );
+            }
+
+            \WP_CLI::log( 'Log file: ' . $logger->path() );
+            \WP_CLI::success( 'Import complete' );
+        }
     } );
 }
 
