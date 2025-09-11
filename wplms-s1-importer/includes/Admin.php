@@ -62,7 +62,7 @@ class Admin {
                                                 <li>Total WooCommerce products: <?php echo esc_html( array_get( $cl_pf, 'products_total', 0 ) ); ?></li>
                                                 <li>Courses in payload: <?php echo esc_html( array_get( $cl_pf, 'courses_in_payload', 0 ) ); ?></li>
                                                 <li>Courses with product SKU: <?php echo esc_html( array_get( $cl_pf, 'courses_with_product_sku', 0 ) ); ?></li>
-                                                <li>Courses with certificate ref: <?php echo esc_html( array_get( $cl_pf, 'courses_with_certificate_ref', 0 ) ); ?></li>
+                                                <li>Courses with certificate data: <?php echo esc_html( array_get( $cl_pf, 'courses_with_certificate', 0 ) ); ?></li>
                                                 <li>Sample product SKU: <?php echo esc_html( array_get( $cl_pf, 'sample_product_sku', '' ) ); ?></li>
                                                 <?php $missing = (array) array_get( $cl_pf, 'missing_course_refs', [] ); ?>
                                                 <?php if ( $missing ) : ?>
