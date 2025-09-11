@@ -498,6 +498,7 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
                 'skipped'                      => (int) ( $stats['skipped'] ?? 0 ),
                 'courses_linked_to_products'   => (int) ( $stats['courses_linked_to_products'] ?? 0 ),
                 'product_not_found_for_course' => (int) ( $stats['product_not_found_for_course'] ?? 0 ),
+                'courses_forced_closed_no_product' => (int) ( $stats['courses_forced_closed_no_product'] ?? 0 ),
                 'certificates_attached'        => (int) ( $stats['certificates_attached'] ?? 0 ),
                 'certificates_missing'         => (int) ( $stats['certificates_missing'] ?? 0 ),
                 'certificates_already_attached'=> (int) ( $stats['certificates_already_attached'] ?? 0 ),
@@ -505,6 +506,12 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
             $report = "# Import Result\n\n|Metric|Count|\n|---|---|\n";
             foreach ( $metrics as $key => $val ) {
                 $report .= sprintf( "|%s|%d|\n", $key, $val );
+            }
+            if ( ! empty( $stats['courses_forced_closed_examples'] ) ) {
+                $report .= "\n## courses_forced_closed_examples\n\n";
+                foreach ( (array) $stats['courses_forced_closed_examples'] as $slug ) {
+                    $report .= sprintf( "- %s\n", $slug );
+                }
             }
             // orphans_imported counts will be added later
 

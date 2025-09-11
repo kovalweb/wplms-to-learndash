@@ -71,11 +71,16 @@ class Admin {
                                         </ul>
                                 <?php endif; ?>
 
-                                <?php if ( array_get( $stats, 'courses_linked_to_products' ) || array_get( $stats, 'product_not_found_for_course' ) || array_get( $stats, 'certificates_attached' ) || array_get( $stats, 'certificates_missing' ) || array_get( $stats, 'certificates_already_attached' ) ) : ?>
+                                <?php if ( array_get( $stats, 'courses_linked_to_products' ) || array_get( $stats, 'product_not_found_for_course' ) || array_get( $stats, 'courses_forced_closed_no_product' ) || array_get( $stats, 'certificates_attached' ) || array_get( $stats, 'certificates_missing' ) || array_get( $stats, 'certificates_already_attached' ) ) : ?>
                                         <h2 class="title">Commerce linking stats</h2>
                                         <ul>
                                                 <li>Courses linked to products: <?php echo esc_html( array_get( $stats, 'courses_linked_to_products', 0 ) ); ?></li>
                                                 <li>Courses with missing product: <?php echo esc_html( array_get( $stats, 'product_not_found_for_course', 0 ) ); ?></li>
+                                                <li>Courses forced closed (no product): <?php echo esc_html( array_get( $stats, 'courses_forced_closed_no_product', 0 ) ); ?></li>
+                                                <?php $forced_examples = (array) array_get( $stats, 'courses_forced_closed_examples', [] ); ?>
+                                                <?php if ( $forced_examples ) : ?>
+                                                <li>Forced closure examples: <?php echo esc_html( implode( ', ', $forced_examples ) ); ?></li>
+                                                <?php endif; ?>
                                                 <li>Linked publish: <?php echo esc_html( array_get( $stats, 'linked_publish', 0 ) ); ?></li>
                                                 <li>Linked draft: <?php echo esc_html( array_get( $stats, 'linked_draft', 0 ) ); ?></li>
                                                 <li>Certificates attached: <?php echo esc_html( array_get( $stats, 'certificates_attached', 0 ) ); ?></li>

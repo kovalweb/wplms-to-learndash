@@ -67,6 +67,8 @@ class Importer {
             'course_terms_attached'   => 0,
             'courses_linked_to_products' => 0,
             'product_not_found_for_course' => 0,
+            'courses_forced_closed_no_product' => 0,
+            'courses_forced_closed_examples' => [],
             'linked_publish'          => 0,
             'linked_draft'            => 0,
             'certificates_attached'   => 0,
@@ -614,6 +616,22 @@ class Importer {
                     $reason = 'product_not_published';
                     if ( $p_status === 'publish' && ! $hidden && $p_price === null ) {
                         $reason = 'no_price_on_product';
+                    }
+                    if ( is_array( $this->stats_ref ) ) {
+                        $this->stats_ref['courses_forced_closed_no_product'] = array_get( $this->stats_ref, 'courses_forced_closed_no_product', 0 ) + 1;
+                        if ( count( $this->stats_ref['courses_forced_closed_examples'] ) < 10 ) {
+                            $this->stats_ref['courses_forced_closed_examples'][] = $slug;
+                        }
+                    }
+                }
+            } else {
+                $access = 'closed';
+                $price_type = 'closed';
+                $reason = 'no_product';
+                if ( is_array( $this->stats_ref ) ) {
+                    $this->stats_ref['courses_forced_closed_no_product'] = array_get( $this->stats_ref, 'courses_forced_closed_no_product', 0 ) + 1;
+                    if ( count( $this->stats_ref['courses_forced_closed_examples'] ) < 10 ) {
+                        $this->stats_ref['courses_forced_closed_examples'][] = $slug;
                     }
                 }
             }
