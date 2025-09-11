@@ -1032,6 +1032,11 @@ class WPLMS_S1_Exporter {
             $course_entry['certificate_old_id'] = $course_cert_id;
             $course_entry['certificate_slug'] = $course_cert_slug;
             $course_entry['certificate_title'] = $course_cert_title;
+            $course_entry['certificate_ref'] = array(
+                'old_id' => $course_cert_id,
+                'slug'   => $course_cert_slug,
+                'title'  => $course_cert_title,
+            );
         }
         $commerce = array(
             'product_sku'    => $product_sku,
