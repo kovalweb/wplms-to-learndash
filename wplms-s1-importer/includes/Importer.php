@@ -317,16 +317,20 @@ class Importer {
                 }
             }
 
-            $ref = array_get( $course, 'certificate_ref', [] );
-            if ( is_array( $ref ) ) {
-                if ( array_get( $ref, 'old_id' ) || array_get( $ref, 'title' ) || array_get( $ref, 'slug' ) ) {
-                    $with_cert++;
-                }
-            } else {
-                $raw = array_get( $course, 'vibe.vibe_certificate_template', 0 );
-                if ( is_array( $raw ) ) { $raw = reset( $raw ); }
-                if ( (int) $raw > 0 ) { $with_cert++; }
+            $has_cert = false;
+            if ( array_get( $course, 'certificate_ref' ) ) {
+                $has_cert = true;
             }
+            if ( (int) array_get( $course, 'certificate_old_id', 0 ) ) {
+                $has_cert = true;
+            }
+            if ( (int) array_get( $course, 'certificates.0.old_id', 0 ) ) {
+                $has_cert = true;
+            }
+            $raw = array_get( $course, 'vibe.vibe_certificate_template', 0 );
+            if ( is_array( $raw ) ) { $raw = reset( $raw ); }
+            if ( (int) $raw > 0 ) { $has_cert = true; }
+            if ( $has_cert ) { $with_cert++; }
         }
 
         return [
@@ -334,7 +338,7 @@ class Importer {
             'products_total'            => $products_total,
             'courses_in_payload'        => count( $courses ),
             'courses_with_product_sku'  => $with_sku,
-            'courses_with_certificate_ref' => $with_cert,
+            'courses_with_certificate'    => $with_cert,
             'missing_course_refs'       => array_slice( $missing, 0, 5 ),
             'sample_product_sku'        => $sample_sku,
         ];
