@@ -1124,18 +1124,27 @@ class Importer {
 
     private function attach_course_certificate( $course, $course_new_id ) {
         $course_old_id = (int) array_get( $course, 'old_id', 0 );
-        $ref = array_get( $course, 'certificate_ref', [] );
         $cert_old_id = 0;
         $cert_title  = '';
         $cert_slug   = '';
-        if ( is_array( $ref ) ) {
+
+        $ref = array_get( $course, 'certificate_ref', null );
+        if ( is_array( $ref ) && ( array_get( $ref, 'old_id' ) || array_get( $ref, 'slug' ) || array_get( $ref, 'title' ) ) ) {
             $cert_old_id = (int) array_get( $ref, 'old_id', 0 );
             $cert_title  = (string) array_get( $ref, 'title', '' );
             $cert_slug   = normalize_slug( array_get( $ref, 'slug', '' ) );
         } else {
-            $raw = array_get( $course, 'vibe.vibe_certificate_template', 0 );
-            if ( is_array( $raw ) ) { $raw = reset( $raw ); }
-            $cert_old_id = (int) $raw;
+            $cert_old_id = (int) array_get( $course, 'certificate_old_id', 0 );
+            $cert_slug   = normalize_slug( array_get( $course, 'certificate_slug', '' ) );
+            $cert_title  = (string) array_get( $course, 'certificate_title', '' );
+            if ( $cert_old_id <= 0 && $cert_slug === '' && $cert_title === '' ) {
+                $cert_old_id = (int) array_get( $course, 'certificates.0.old_id', 0 );
+            }
+            if ( $cert_old_id <= 0 && $cert_slug === '' && $cert_title === '' ) {
+                $raw = array_get( $course, 'meta.vibe_certificate_template', 0 );
+                if ( is_array( $raw ) ) { $raw = reset( $raw ); }
+                $cert_old_id = (int) $raw;
+            }
         }
 
         if ( $cert_old_id <= 0 && $cert_title === '' && $cert_slug === '' ) {
