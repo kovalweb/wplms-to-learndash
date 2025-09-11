@@ -453,6 +453,9 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
          *
          * [--no-emails]
          * : Suppress email and notification hooks during import.
+         *
+         * [--run-ld-upgrades]
+         * : Run LearnDash data-upgrade routines after import.
          */
         public function run( $args, $assoc ) {
             $path = $assoc['file'] ?? '';
@@ -467,15 +470,35 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
                 \WP_CLI::error( 'Invalid JSON.' );
             }
 
-            $no_emails = isset( $assoc['no-emails'] );
-            $logger    = new \WPLMS_S1I\Logger();
-            $idmap     = new \WPLMS_S1I\IdMap();
-            $importer  = new \WPLMS_S1I\Importer( $logger, $idmap );
+            $no_emails       = isset( $assoc['no-emails'] );
+            $run_ld_upgrades = isset( $assoc['run-ld-upgrades'] );
+            $logger          = new \WPLMS_S1I\Logger();
+            $idmap           = new \WPLMS_S1I\IdMap();
+            $importer        = new \WPLMS_S1I\Importer( $logger, $idmap );
             if ( $no_emails ) {
                 $importer->set_disable_emails( true );
             }
 
-            $stats = $importer->run( $payload );
+            $stats             = $importer->run( $payload );
+            $ld_upgrade_status = [];
+            if ( $run_ld_upgrades ) {
+                $callbacks = [
+                    'quizzes'   => 'learndash_data_upgrades_quizzes',
+                    'questions' => 'learndash_data_upgrades_questions',
+                ];
+                foreach ( $callbacks as $label => $fn ) {
+                    if ( function_exists( $fn ) ) {
+                        try {
+                            $fn();
+                            $ld_upgrade_status[ $label ] = 'success';
+                        } catch ( \Throwable $e ) {
+                            $ld_upgrade_status[ $label ] = 'error: ' . $e->getMessage();
+                        }
+                    } else {
+                        $ld_upgrade_status[ $label ] = 'missing';
+                    }
+                }
+            }
 
             $root_dir   = dirname( WPLMS_S1I_DIR );
             $csv_dir    = $root_dir . '/csv';
@@ -601,6 +624,13 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
                 $report .= "\n## orphans_imported\n\n|Type|Count|\n|---|---|\n";
                 foreach ( $orphan_counts as $k => $v ) {
                     $report .= sprintf( "|%s|%d|\n", $k, $v );
+                }
+            }
+
+            if ( $ld_upgrade_status ) {
+                $report .= "\n## learndash_upgrades\n\n|Routine|Status|\n|---|---|\n";
+                foreach ( $ld_upgrade_status as $routine => $status ) {
+                    $report .= sprintf( "|%s|%s|\n", $routine, $status );
                 }
             }
 
