@@ -119,6 +119,8 @@ function trailingslashit($s) { return rtrim($s,'/').'/'; }
 function wp_mkdir_p($d) { if (!is_dir($d)) mkdir($d,0777,true); return true; }
 function learndash_update_setting($id,$k,$v){ update_post_meta($id,$k,$v); }
 function learndash_get_setting($id,$k){ return get_post_meta($id,$k,true); }
+function learndash_data_upgrades_quizzes(){ $GLOBALS['ld_upgrades'][] = 'quizzes'; }
+function learndash_data_upgrades_questions(){ $GLOBALS['ld_upgrades'][] = 'questions'; }
 
 function plugin_dir_path($file){ return dirname($file) . '/'; }
 function plugin_dir_url($file){ return 'http://example.com/' . basename(dirname($file)) . '/'; }
