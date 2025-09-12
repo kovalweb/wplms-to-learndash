@@ -111,6 +111,9 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
          *
          * [--run-ld-upgrades]
          * : Run LearnDash data-upgrade routines after import.
+
+         * [--import-orphan-certificates]
+         * : Import certificates not referenced by selected courses.
          */
         public function import( $args, $assoc ) {
             $path = $assoc['file'] ?? '';
@@ -127,10 +130,18 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
 
             $dry             = isset( $assoc['dry'] );
             $run_ld_upgrades = isset( $assoc['run-ld-upgrades'] );
+            if ( function_exists( 'WP_CLI\\Utils\\get_flag_value' ) ) {
+                $import_orphans = \WP_CLI\Utils\get_flag_value( $assoc, 'import-orphan-certificates', null );
+            } else {
+                $import_orphans = array_key_exists( 'import-orphan-certificates', $assoc ) ? (bool) $assoc['import-orphan-certificates'] : null;
+            }
             $logger          = new \WPLMS_S1I\Logger();
             $idmap           = new \WPLMS_S1I\IdMap();
             $importer        = new \WPLMS_S1I\Importer( $logger, $idmap );
             $importer->set_dry_run( $dry );
+            if ( null !== $import_orphans ) {
+                $importer->set_import_orphan_certificates( $import_orphans );
+            }
             try {
                 $stats = $importer->run( $payload );
                 $cl    = (array) ( $stats['commerce_linking_preflight'] ?? [] );
@@ -179,6 +190,9 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
          *
          * --file=<path>
          * : Absolute path to JSON file.
+         *
+         * [--import-orphan-certificates]
+         * : Import certificates not referenced by selected courses.
          */
         public function simulate( $args, $assoc ) {
             $path = $assoc['file'] ?? '';
@@ -193,10 +207,18 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
                 \WP_CLI::error( 'Failed to decode JSON: ' . json_last_error_msg() );
             }
 
+            if ( function_exists( 'WP_CLI\\Utils\\get_flag_value' ) ) {
+                $import_orphans = \WP_CLI\Utils\get_flag_value( $assoc, 'import-orphan-certificates', null );
+            } else {
+                $import_orphans = array_key_exists( 'import-orphan-certificates', $assoc ) ? (bool) $assoc['import-orphan-certificates'] : null;
+            }
             $logger   = new \WPLMS_S1I\Logger();
             $idmap    = new \WPLMS_S1I\IdMap();
             $importer = new \WPLMS_S1I\Importer( $logger, $idmap );
             $importer->set_dry_run( true );
+            if ( null !== $import_orphans ) {
+                $importer->set_import_orphan_certificates( $import_orphans );
+            }
             try {
                 $stats = $importer->run( $payload );
                 $cl    = (array) ( $stats['commerce_linking_preflight'] ?? [] );
