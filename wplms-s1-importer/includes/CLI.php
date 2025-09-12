@@ -7,6 +7,7 @@ namespace WPLMS_S1I;
 class CLI {
     public static function register() {
         \WP_CLI::add_command( 'wplms-import reset', [ __CLASS__, 'cmd_reset' ] );
+        \WP_CLI::add_command( 'wplms-import dedupe-certs', [ __CLASS__, 'cmd_dedupe_certs' ] );
     }
 
     public static function cmd_reset( $args, $assoc ) {
@@ -37,6 +38,18 @@ class CLI {
         }
         \WP_CLI::log( 'Log: ' . ( $result['log'] ?? '' ) );
         \WP_CLI::success( $dry ? 'Dry run complete.' : 'Cleanup complete.' );
+    }
+
+    public static function cmd_dedupe_certs( $args, $assoc ) {
+        $dry   = isset( $assoc['dry-run'] );
+        $reset = new Reset();
+        $result = $reset->dedupe_certificates( $dry );
+        foreach ( $result['details'] as $old_id => $info ) {
+            \WP_CLI::log( sprintf( 'old_id %s keep %d remove %s', $old_id, $info['keep'], implode( ',', $info['removed'] ) ) );
+        }
+        \WP_CLI::log( sprintf( 'groups: %d duplicates: %d deleted: %d', $result['groups'], $result['duplicates'], $result['deleted'] ) );
+        \WP_CLI::log( 'Log: ' . ( $result['log'] ?? '' ) );
+        \WP_CLI::success( $dry ? 'Dry run complete.' : 'Certificate dedupe complete.' );
     }
 
     private static function map_type_to_post_type( string $type ) : string {

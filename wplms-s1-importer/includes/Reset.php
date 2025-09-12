@@ -130,4 +130,74 @@ class Reset {
         $results['log'] = $log_file;
         return $results;
     }
+
+    /**
+     * Deduplicate certificates by WPLMS old ID.
+     *
+     * For each `_wplms_old_id` with multiple certificates, keep the lowest
+     * post ID and delete the others. Updates IdMap to point each old ID to
+     * the surviving certificate.
+     *
+     * @param bool $dry Only preview actions.
+     * @return array<string,mixed> Summary including counts and log path.
+     */
+    public function dedupe_certificates( bool $dry = true ) : array {
+        $timestamp = date( 'Ymd-His' );
+        $upload    = wp_upload_dir();
+        $base_dir  = trailingslashit( $upload['basedir'] ) . 'wplms-s1-importer';
+        $log_dir   = $base_dir . '/logs';
+        if ( ! is_dir( $log_dir ) ) {
+            wp_mkdir_p( $log_dir );
+        }
+        $log_file = $log_dir . '/cert-dedupe-' . $timestamp . '.log';
+        $log_fp   = fopen( $log_file, 'a' );
+
+        $posts  = get_posts( [
+            'post_type'      => 'sfwd-certificates',
+            'post_status'    => 'any',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+        ] );
+        $groups = [];
+        foreach ( $posts as $pid ) {
+            $old = get_post_meta( $pid, '_wplms_old_id', true );
+            if ( '' === $old ) {
+                continue;
+            }
+            $groups[ (string) $old ][] = (int) $pid;
+        }
+
+        $idmap   = new IdMap();
+        $results = [
+            'groups'     => count( $groups ),
+            'duplicates' => 0,
+            'deleted'    => 0,
+            'details'    => [],
+            'log'        => $log_file,
+        ];
+
+        foreach ( $groups as $old_id => $ids ) {
+            sort( $ids, SORT_NUMERIC );
+            $keep = array_shift( $ids );
+            $idmap->set( 'certificate', $old_id, $keep );
+            if ( empty( $ids ) ) {
+                continue;
+            }
+            $results['duplicates']++;
+            $results['deleted'] += count( $ids );
+            $results['details'][ $old_id ] = [
+                'keep'    => $keep,
+                'removed' => $ids,
+            ];
+            fwrite( $log_fp, sprintf( 'old_id %s keep %d remove %s' . "\n", $old_id, $keep, implode( ',', $ids ) ) );
+            if ( ! $dry ) {
+                foreach ( $ids as $del_id ) {
+                    wp_delete_post( $del_id, true );
+                }
+            }
+        }
+
+        fclose( $log_fp );
+        return $results;
+    }
 }
