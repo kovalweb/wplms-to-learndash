@@ -792,6 +792,14 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
                 }
             }
 
+            $ignored_counts = (array) ( $stats['ignored_orphans_in_related_mode'] ?? [] );
+            if ( array_sum( $ignored_counts ) > 0 ) {
+                $report .= "\n## ignored_orphans_in_related_mode\n\n|Type|Count|\n|---|---|\n";
+                foreach ( $ignored_counts as $k => $v ) {
+                    $report .= sprintf( "|%s|%d|\n", $k, $v );
+                }
+            }
+
             if ( $ld_upgrade_status ) {
                 $report .= "\n## learndash_upgrades\n\n|Routine|Status|\n|---|---|\n";
                 foreach ( $ld_upgrade_status as $routine => $status ) {
