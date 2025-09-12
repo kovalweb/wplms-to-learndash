@@ -132,7 +132,9 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
          *
          * [--run-ld-upgrades]
          * : Run LearnDash data-upgrade routines after import.
-
+         *
+         * Orphan handling is determined by the export mode in the JSON payload.
+         * Use `discover_all` to import orphans; other modes skip them.
          */
         public function import( $args, $assoc ) {
             $path = $assoc['file'] ?? '';
@@ -217,6 +219,9 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
          *
          * --file=<path>
          * : Absolute path to JSON file.
+         *
+         * Orphan handling is determined by the export mode in the JSON payload.
+         * Use `discover_all` to import orphans; other modes skip them.
          *
          */
         public function simulate( $args, $assoc ) {

@@ -25,6 +25,7 @@ update_post_meta($p1, '_sku', 'sku1');
 
 $json_path = __DIR__ . '/sample-run.json';
 $payload = [
+    'mode' => 'discover_all',
     'courses' => [
         [
             'old_id' => 1,
