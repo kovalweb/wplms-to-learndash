@@ -308,6 +308,7 @@ class Importer {
         $with_sku   = 0;
         $with_cert  = 0;
         $missing    = [];
+        $missing_certs = [];
         foreach ( $courses as $course ) {
             $sku = array_get( $course, 'commerce.product_sku', '' );
             if ( $sku ) {
@@ -319,20 +320,67 @@ class Importer {
                 }
             }
 
-            $has_cert = false;
-            if ( array_get( $course, 'certificate_ref' ) ) {
-                $has_cert = true;
+            $cert_old_id = 0;
+            $cert_title  = '';
+            $cert_slug   = '';
+            $ref = array_get( $course, 'certificate_ref', null );
+            if ( is_array( $ref ) && ( array_get( $ref, 'old_id' ) || array_get( $ref, 'slug' ) || array_get( $ref, 'title' ) ) ) {
+                $cert_old_id = (int) array_get( $ref, 'old_id', 0 );
+                $cert_title  = (string) array_get( $ref, 'title', '' );
+                $cert_slug   = normalize_slug( array_get( $ref, 'slug', '' ) );
+            } else {
+                $cert_old_id = (int) array_get( $course, 'certificate_old_id', 0 );
+                $cert_slug   = normalize_slug( array_get( $course, 'certificate_slug', '' ) );
+                $cert_title  = (string) array_get( $course, 'certificate_title', '' );
+                if ( $cert_old_id <= 0 && ! $cert_slug && $cert_title === '' ) {
+                    $cert_old_id = (int) array_get( $course, 'certificates.0.old_id', 0 );
+                }
+                if ( $cert_old_id <= 0 && ! $cert_slug && $cert_title === '' ) {
+                    $raw = array_get( $course, 'vibe.vibe_certificate_template', 0 );
+                    if ( is_array( $raw ) ) { $raw = reset( $raw ); }
+                    $cert_old_id = (int) $raw;
+                }
             }
-            if ( (int) array_get( $course, 'certificate_old_id', 0 ) ) {
-                $has_cert = true;
+
+            $has_cert = ( $cert_old_id > 0 || $cert_title !== '' || $cert_slug !== '' );
+            if ( $has_cert ) {
+                $with_cert++;
+                $cert_new_id = 0;
+                if ( $cert_old_id > 0 ) {
+                    $found = \get_posts( [
+                        'post_type'   => 'sfwd-certificates',
+                        'post_status' => 'any',
+                        'meta_key'    => '_wplms_old_id',
+                        'meta_value'  => $cert_old_id,
+                        'fields'      => 'ids',
+                        'numberposts' => 1,
+                    ] );
+                    if ( $found ) { $cert_new_id = (int) $found[0]; }
+                }
+                if ( ! $cert_new_id && $cert_title ) {
+                    $page = \get_page_by_title( $cert_title, OBJECT, 'sfwd-certificates' );
+                    if ( $page ) { $cert_new_id = (int) $page->ID; }
+                }
+                if ( ! $cert_new_id && $cert_slug ) {
+                    $found = \get_posts( [
+                        'post_type'   => 'sfwd-certificates',
+                        'post_status' => 'any',
+                        'name'        => $cert_slug,
+                        'fields'      => 'ids',
+                        'numberposts' => 1,
+                    ] );
+                    if ( $found ) { $cert_new_id = (int) $found[0]; }
+                }
+                if ( ! $cert_new_id ) {
+                    $slug = normalize_slug( array_get( $course, 'current_slug', array_get( $course, 'post.post_name', '' ) ) );
+                    $missing_certs[] = [
+                        'course_slug' => $slug,
+                        'cert_old_id' => $cert_old_id,
+                        'cert_slug'   => $cert_slug,
+                        'cert_title'  => $cert_title,
+                    ];
+                }
             }
-            if ( (int) array_get( $course, 'certificates.0.old_id', 0 ) ) {
-                $has_cert = true;
-            }
-            $raw = array_get( $course, 'vibe.vibe_certificate_template', 0 );
-            if ( is_array( $raw ) ) { $raw = reset( $raw ); }
-            if ( (int) $raw > 0 ) { $has_cert = true; }
-            if ( $has_cert ) { $with_cert++; }
         }
 
         return [
@@ -342,6 +390,7 @@ class Importer {
             'courses_with_product_sku'  => $with_sku,
             'courses_with_certificate'    => $with_cert,
             'missing_course_refs'       => array_slice( $missing, 0, 5 ),
+            'missing_certificate_refs'  => array_slice( $missing_certs, 0, 5 ),
             'sample_product_sku'        => $sample_sku,
         ];
     }
@@ -1181,7 +1230,23 @@ class Importer {
             }
         }
 
-        if ( $cert_old_id <= 0 && $cert_title === '' && $cert_slug === '' ) {
+        if ( $cert_old_id <= 0 && $cert_title === '' && ! $cert_slug ) {
+            $log = [
+                'course_old_id' => $course_old_id,
+                'course_new_id' => $course_new_id,
+                'cert_old_id'   => $cert_old_id,
+                'cert_new_id'   => 0,
+                'cert_title'    => $cert_title,
+                'cert_slug'     => $cert_slug,
+                'reason'        => 'missing_reference',
+            ];
+            if ( is_array( $this->stats_ref ) ) {
+                $this->stats_ref['certificates_missing'] = array_get( $this->stats_ref, 'certificates_missing', 0 ) + 1;
+                if ( count( $this->stats_ref['certificates_missing_examples'] ) < 10 ) {
+                    $this->stats_ref['certificates_missing_examples'][] = $log;
+                }
+            }
+            $this->logger->write( 'course certificate missing', $log );
             return;
         }
 
@@ -1222,6 +1287,16 @@ class Importer {
             'cert_title'    => $cert_title,
             'cert_slug'     => $cert_slug,
         ];
+
+        if ( $cert_new_id <= 0 ) {
+            if ( $cert_old_id > 0 ) {
+                $log['reason'] = 'id_not_found';
+            } elseif ( $cert_slug ) {
+                $log['reason'] = 'slug_not_found';
+            } elseif ( $cert_title ) {
+                $log['reason'] = 'title_not_found';
+            }
+        }
 
         if ( $this->dry_run ) {
             $this->logger->write( 'DRY: course certificate', $log );
