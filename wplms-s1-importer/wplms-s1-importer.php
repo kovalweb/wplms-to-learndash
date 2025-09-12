@@ -74,11 +74,14 @@ add_action( 'init', function () {
     if ( is_admin() ) {
         $admin = new \WPLMS_S1I\Admin();
         $admin->hooks();
+        $reset_admin = new \WPLMS_S1I\ResetAdmin();
+        $reset_admin->hooks();
     }
 } );
 
-// Optional: WP‑CLI command for local usage: wp wplms-s1 import --file=<path.json> [--dry]
+// Optional: WP‑CLI commands
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
+    \WPLMS_S1I\CLI::register();
     \WP_CLI::add_command( 'wplms-s1', new class {
         /**
          * Import from a JSON exported by WPLMS S1 Exporter.
