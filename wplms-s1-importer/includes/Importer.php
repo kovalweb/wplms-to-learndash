@@ -1057,28 +1057,40 @@ class Importer {
 
     private function import_certificate( $cert, $is_orphan = false ) {
         $old_id = (int) array_get( $cert, 'old_id', 0 );
+        $title  = (string) array_get( $cert, 'post.post_title', '' );
         $slug   = normalize_slug( array_get( $cert, 'post.post_name', '' ) );
-        if ( ! $slug ) {
-            $slug = normalize_slug( array_get( $cert, 'post.post_title', '' ) );
-        }
-        if ( ! $slug ) {
-            $slug = 'certificate-' . $old_id;
-        }
-
-        $existing = $this->idmap->get( 'certificate', $old_id );
-        if ( ! $existing ) {
-            $f = get_posts( [
-                'post_type'   => 'sfwd-certificates',
-                'post_status' => 'any',
-                'numberposts' => 1,
-                'fields'      => 'ids',
-                'meta_key'    => '_wplms_old_id',
-                'meta_value'  => $old_id,
-            ] );
-            if ( $f ) $existing = (int) $f[0];
+        if ( $title === '' && $slug === '' ) {
+            $title = 'Certificate ' . $old_id;
+            $slug  = 'certificate-' . $old_id;
+        } elseif ( $slug === '' ) {
+            $slug = normalize_slug( $title );
         }
 
-        $title   = array_get( $cert, 'post.post_title', 'Certificate' );
+        $existing = 0;
+        if ( $old_id > 0 ) {
+            $existing = $this->idmap->get( 'certificate', $old_id );
+            if ( ! $existing ) {
+                $f = \get_posts( [
+                    'post_type'   => 'sfwd-certificates',
+                    'post_status' => 'any',
+                    'numberposts' => 1,
+                    'fields'      => 'ids',
+                    'meta_key'    => '_wplms_old_id',
+                    'meta_value'  => $old_id,
+                ] );
+                if ( $f ) { $existing = (int) $f[0]; }
+            }
+        } else {
+            if ( $slug ) {
+                $page = \get_page_by_path( $slug, OBJECT, 'sfwd-certificates' );
+                if ( $page ) { $existing = (int) $page->ID; }
+            }
+            if ( ! $existing && $title ) {
+                $page = \get_page_by_title( $title, OBJECT, 'sfwd-certificates' );
+                if ( $page ) { $existing = (int) $page->ID; }
+            }
+        }
+
         $content = array_get( $cert, 'post.post_content', '' );
 
         $args = [
