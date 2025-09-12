@@ -4,8 +4,12 @@ Utilities for migrating WPLMS content into LearnDash.
 
 ## Importer
 
-The importer processes orphan content only when the export was generated in
-`discover_all` mode. Other export modes skip orphans automatically.
+Orphan handling is now determined solely by the export mode in the source
+JSON. There is no flag to toggle orphan certificate import.
+
+* `discover_related` &rarr; no orphan units, quizzes, assignments or
+  certificates are imported.
+* `discover_all` &rarr; all orphan content is imported.
 
 ## Shortcodes
 

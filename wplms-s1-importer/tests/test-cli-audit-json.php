@@ -18,6 +18,7 @@ foreach ($files as $f) {
 
 $json_path = __DIR__ . '/sample-audit.json';
 $payload = [
+    'mode' => 'discover_all',
     'courses' => [
         [ 'id' => 10, 'slug' => 'course-10', 'title' => 'Course 10', 'meta' => ['has_product' => false] ],
         [ 'id' => 11, 'slug' => 'course-11', 'title' => 'Course 11', 'meta' => ['has_product' => true, 'product_id' => 5] ],
