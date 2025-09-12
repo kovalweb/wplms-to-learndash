@@ -7,6 +7,7 @@ class Importer {
     private $dry_run = false;
     private $recheck = false;
     private $suppress_emails = false;
+    private $import_orphan_certificates = null;
     private $stats_ref = null;
     private $term_index = [
         'course-cat' => [ 'slug' => [], 'id' => [] ],
@@ -21,10 +22,17 @@ class Importer {
     public function set_dry_run( $dry ) { $this->dry_run = (bool) $dry; }
     public function set_recheck( $flag ) { $this->recheck = (bool) $flag; }
     public function set_disable_emails( $flag ) { $this->suppress_emails = (bool) $flag; }
+    public function set_import_orphan_certificates( $flag ) { $this->import_orphan_certificates = (bool) $flag; }
 
     public function run( array $payload ) {
         if ( ! is_array( $payload ) ) {
             throw new \RuntimeException( 'Invalid import payload' );
+        }
+
+        $selected = (array) array_get( $payload, 'export_meta.selected_ids', [] );
+        $is_partial = ! empty( $selected );
+        if ( null === $this->import_orphan_certificates ) {
+            $this->import_orphan_certificates = ! $is_partial;
         }
 
         $suppress = $this->suppress_emails;
@@ -243,19 +251,21 @@ class Importer {
                 $stats['orphans_skipped']['assignments']++;
             }
         }
-        foreach ( (array) array_get( $orph, 'certificates', [] ) as $cert ) {
-            $cinfo = $this->import_certificate( $cert, true );
-            $cid = (int) array_get( $cinfo, 'id', 0 );
-            if ( $cid ) {
-                if ( array_get( $cinfo, 'created' ) ) {
-                    $stats['certificates_created']++;
+        if ( $this->import_orphan_certificates ) {
+            foreach ( (array) array_get( $orph, 'certificates', [] ) as $cert ) {
+                $cinfo = $this->import_certificate( $cert, true );
+                $cid = (int) array_get( $cinfo, 'id', 0 );
+                if ( $cid ) {
+                    if ( array_get( $cinfo, 'created' ) ) {
+                        $stats['certificates_created']++;
+                    } else {
+                        $stats['certificates_updated']++;
+                    }
+                    $stats['orphans_certificates']++;
+                    $stats['orphans_imported']['certificates']++;
                 } else {
-                    $stats['certificates_updated']++;
+                    $stats['orphans_skipped']['certificates']++;
                 }
-                $stats['orphans_certificates']++;
-                $stats['orphans_imported']['certificates']++;
-            } else {
-                $stats['orphans_skipped']['certificates']++;
             }
         }
 
