@@ -636,58 +636,6 @@ class Importer {
         }
 
         $reason = '';
-        if ( $this->recheck ) {
-            $pid = (int) array_get( $course, 'meta.product_id', 0 );
-            if ( $pid && get_post( $pid ) ) {
-                $p_status = get_post_status( $pid );
-                $terms    = get_the_terms( $pid, 'product_visibility' );
-                $hidden   = false;
-                if ( is_array( $terms ) ) {
-                    foreach ( $terms as $t ) {
-                        if ( in_array( $t->slug, [ 'exclude-from-catalog', 'exclude-from-search' ], true ) ) {
-                            $hidden = true;
-                            break;
-                        }
-                    }
-                }
-                $p_price = null;
-                $meta_vals = [ get_post_meta( $pid, '_price', true ), get_post_meta( $pid, '_sale_price', true ), get_post_meta( $pid, '_regular_price', true ) ];
-                foreach ( $meta_vals as $mv ) {
-                    if ( is_numeric( $mv ) ) { $p_price = (float) $mv; break; }
-                }
-                if ( $p_status === 'publish' && ! $hidden && $p_price !== null ) {
-                    $access = 'paid';
-                    $price_type = 'buy now';
-                    $price = round( $p_price, 2 );
-                } else {
-                    $access = 'closed';
-                    $price_type = 'closed';
-                    $reason = 'product_not_published';
-                    if ( $p_status === 'publish' && ! $hidden && $p_price === null ) {
-                        $reason = 'no_price_on_product';
-                    }
-                    if ( is_array( $this->stats_ref ) ) {
-                        $this->stats_ref['courses_forced_closed_no_product'] = array_get( $this->stats_ref, 'courses_forced_closed_no_product', 0 ) + 1;
-                        if ( count( $this->stats_ref['courses_forced_closed_examples'] ) < 10 ) {
-                            $this->stats_ref['courses_forced_closed_examples'][] = $slug;
-                        }
-                    }
-                }
-            } else {
-                $access = 'closed';
-                $price_type = 'closed';
-                $reason = 'no_product';
-                if ( is_array( $this->stats_ref ) ) {
-                    $this->stats_ref['courses_forced_closed_no_product'] = array_get( $this->stats_ref, 'courses_forced_closed_no_product', 0 ) + 1;
-                    if ( count( $this->stats_ref['courses_forced_closed_examples'] ) < 10 ) {
-                        $this->stats_ref['courses_forced_closed_examples'][] = $slug;
-                    }
-                }
-            }
-        }
-        if ( $reason ) {
-            $this->logger->write( 'recheck adjusted access', [ 'old_id' => $old_id, 'reason' => $reason ] );
-        }
 
         // duration
         $duration      = (int) array_get( $course, 'duration', 0 );
@@ -733,23 +681,6 @@ class Importer {
         }
         if ( $slug ) \update_post_meta( $new_id, '_wplms_s1_current_slug', $slug );
         if ( $orig_slug ) \update_post_meta( $new_id, '_wplms_s1_original_slug', $orig_slug );
-
-        // LearnDash settings
-        if ( function_exists( 'learndash_update_setting' ) ) {
-            \learndash_update_setting( $new_id, 'course_price_type', $price_type );
-            if ( $price_type === 'buy now' && $price > 0 ) {
-                \learndash_update_setting( $new_id, 'course_price', $price );
-            } else {
-                \learndash_update_setting( $new_id, 'course_price', '' );
-            }
-        } else {
-            \update_post_meta( $new_id, 'course_price_type', $price_type );
-            if ( $price_type === 'buy now' && $price > 0 ) {
-                \update_post_meta( $new_id, 'course_price', $price );
-            } else {
-                \delete_post_meta( $new_id, 'course_price' );
-            }
-        }
 
         // Link to WooCommerce product
         $sku        = array_get( $course, 'commerce.product_sku', '' );
@@ -820,6 +751,75 @@ class Importer {
             ] );
             if ( is_array( $this->stats_ref ) ) {
                 $this->stats_ref['product_not_found_for_course'] = array_get( $this->stats_ref, 'product_not_found_for_course', 0 ) + 1;
+            }
+        }
+
+        if ( $this->recheck ) {
+            if ( $product_id && get_post( $product_id ) ) {
+                $p_status = get_post_status( $product_id );
+                $terms    = get_the_terms( $product_id, 'product_visibility' );
+                $hidden   = false;
+                if ( is_array( $terms ) ) {
+                    foreach ( $terms as $t ) {
+                        if ( in_array( $t->slug, [ 'exclude-from-catalog', 'exclude-from-search' ], true ) ) {
+                            $hidden = true;
+                            break;
+                        }
+                    }
+                }
+                $p_price   = null;
+                $meta_vals = [ get_post_meta( $product_id, '_price', true ), get_post_meta( $product_id, '_sale_price', true ), get_post_meta( $product_id, '_regular_price', true ) ];
+                foreach ( $meta_vals as $mv ) {
+                    if ( is_numeric( $mv ) ) { $p_price = (float) $mv; break; }
+                }
+                if ( $p_status === 'publish' && ! $hidden && $p_price !== null ) {
+                    $access     = 'paid';
+                    $price_type = 'buy now';
+                    $price      = round( $p_price, 2 );
+                } else {
+                    $access     = 'closed';
+                    $price_type = 'closed';
+                    $reason     = 'product_not_published';
+                    if ( $p_status === 'publish' && ! $hidden && $p_price === null ) {
+                        $reason = 'no_price_on_product';
+                    }
+                    if ( is_array( $this->stats_ref ) ) {
+                        $this->stats_ref['courses_forced_closed_no_product'] = array_get( $this->stats_ref, 'courses_forced_closed_no_product', 0 ) + 1;
+                        if ( count( $this->stats_ref['courses_forced_closed_examples'] ) < 10 ) {
+                            $this->stats_ref['courses_forced_closed_examples'][] = $slug;
+                        }
+                    }
+                }
+            } else {
+                $access     = 'closed';
+                $price_type = 'closed';
+                $reason     = 'no_product';
+                if ( is_array( $this->stats_ref ) ) {
+                    $this->stats_ref['courses_forced_closed_no_product'] = array_get( $this->stats_ref, 'courses_forced_closed_no_product', 0 ) + 1;
+                    if ( count( $this->stats_ref['courses_forced_closed_examples'] ) < 10 ) {
+                        $this->stats_ref['courses_forced_closed_examples'][] = $slug;
+                    }
+                }
+            }
+        }
+        if ( $reason ) {
+            $this->logger->write( 'recheck adjusted access', [ 'old_id' => $old_id, 'reason' => $reason ] );
+        }
+
+        // LearnDash settings
+        if ( function_exists( 'learndash_update_setting' ) ) {
+            \learndash_update_setting( $new_id, 'course_price_type', $price_type );
+            if ( $price_type === 'buy now' && $price > 0 ) {
+                \learndash_update_setting( $new_id, 'course_price', $price );
+            } else {
+                \learndash_update_setting( $new_id, 'course_price', '' );
+            }
+        } else {
+            \update_post_meta( $new_id, 'course_price_type', $price_type );
+            if ( $price_type === 'buy now' && $price > 0 ) {
+                \update_post_meta( $new_id, 'course_price', $price );
+            } else {
+                \delete_post_meta( $new_id, 'course_price' );
             }
         }
 
