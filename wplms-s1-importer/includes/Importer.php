@@ -305,21 +305,26 @@ class Importer {
             }
         }
 
-        $with_sku   = 0;
-        $with_cert  = 0;
-        $missing    = [];
+        $with_sku     = 0;
+        $with_cert    = 0;
+        $missing      = [];
         $missing_certs = [];
+
+        $sellable            = 0;
+        $unsellable_reasons  = [ 'no_product' => 0, 'not_publish' => 0, 'no_price' => 0 ];
+        $unsellable_examples = [];
+
         foreach ( $courses as $course ) {
-            $sku = array_get( $course, 'commerce.product_sku', '' );
+            $sku  = array_get( $course, 'commerce.product_sku', '' );
+            $slug = normalize_slug( array_get( $course, 'current_slug', array_get( $course, 'post.post_name', '' ) ) );
+
             if ( $sku ) {
                 $with_sku++;
-            } else {
-                $slug = normalize_slug( array_get( $course, 'current_slug', array_get( $course, 'post.post_name', '' ) ) );
-                if ( $slug ) {
-                    $missing[] = $slug;
-                }
+            } elseif ( $slug ) {
+                $missing[] = $slug;
             }
 
+            // Certificate checks (existing code)
             $cert_old_id = 0;
             $cert_title  = '';
             $cert_slug   = '';
@@ -372,12 +377,64 @@ class Importer {
                     if ( $found ) { $cert_new_id = (int) $found[0]; }
                 }
                 if ( ! $cert_new_id ) {
-                    $slug = normalize_slug( array_get( $course, 'current_slug', array_get( $course, 'post.post_name', '' ) ) );
                     $missing_certs[] = [
                         'course_slug' => $slug,
                         'cert_old_id' => $cert_old_id,
                         'cert_slug'   => $cert_slug,
                         'cert_title'  => $cert_title,
+                    ];
+                }
+            }
+
+            // Resolve product for sellable check
+            $product_id = 0;
+            if ( $sku && function_exists( 'wc_get_product_id_by_sku' ) ) {
+                $product_id = (int) \wc_get_product_id_by_sku( $sku );
+            }
+            if ( ! $product_id ) {
+                $old_pid = (int) array_get( $course, 'meta.product_id', 0 );
+                if ( $old_pid ) {
+                    $found = \get_posts( [
+                        'post_type'   => 'product',
+                        'post_status' => 'any',
+                        'meta_key'    => '_wplms_old_product_id',
+                        'meta_value'  => $old_pid,
+                        'fields'      => 'ids',
+                        'numberposts' => 1,
+                    ] );
+                    if ( $found ) { $product_id = (int) $found[0]; }
+                }
+            }
+
+            $reason = '';
+            if ( ! $product_id ) {
+                $reason = 'no_product';
+            } else {
+                $status = \get_post_status( $product_id );
+                if ( 'publish' !== $status ) {
+                    $reason = 'not_publish';
+                } else {
+                    $price = \get_post_meta( $product_id, '_price', true );
+                    if ( '' === $price || ! is_numeric( $price ) ) {
+                        $price = \get_post_meta( $product_id, '_sale_price', true );
+                    }
+                    if ( '' === $price || ! is_numeric( $price ) ) {
+                        $price = \get_post_meta( $product_id, '_regular_price', true );
+                    }
+                    if ( ! is_numeric( $price ) ) {
+                        $reason = 'no_price';
+                    }
+                }
+            }
+
+            if ( '' === $reason ) {
+                $sellable++;
+            } else {
+                $unsellable_reasons[ $reason ]++;
+                if ( count( $unsellable_examples ) < 5 ) {
+                    $unsellable_examples[] = [
+                        'course_slug' => $slug,
+                        'reason'      => $reason,
                     ];
                 }
             }
@@ -388,10 +445,13 @@ class Importer {
             'products_total'            => $products_total,
             'courses_in_payload'        => count( $courses ),
             'courses_with_product_sku'  => $with_sku,
-            'courses_with_certificate'    => $with_cert,
+            'courses_with_certificate'  => $with_cert,
             'missing_course_refs'       => array_slice( $missing, 0, 5 ),
             'missing_certificate_refs'  => array_slice( $missing_certs, 0, 5 ),
             'sample_product_sku'        => $sample_sku,
+            'sellable_courses'          => $sellable,
+            'unsellable_reasons'        => $unsellable_reasons,
+            'unsellable_examples'       => $unsellable_examples,
         ];
     }
 

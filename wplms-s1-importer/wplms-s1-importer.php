@@ -129,6 +129,15 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
             $importer->set_dry_run( $dry );
             try {
                 $stats = $importer->run( $payload );
+                $cl    = (array) ( $stats['commerce_linking_preflight'] ?? [] );
+                if ( $cl ) {
+                    $sell = (int) ( $cl['sellable_courses'] ?? 0 );
+                    $uns  = array_sum( (array) ( $cl['unsellable_reasons'] ?? [] ) );
+                    \WP_CLI::log( sprintf( 'Preflight sellable=%d unsellable=%d', $sell, $uns ) );
+                    foreach ( (array) ( $cl['unsellable_examples'] ?? [] ) as $ex ) {
+                        \WP_CLI::log( sprintf( ' - %s (%s)', $ex['course_slug'] ?? '', $ex['reason'] ?? '' ) );
+                    }
+                }
                 \WP_CLI::success( sprintf(
                     'Media: %d %d %d',
                     $stats['images_downloaded'] ?? 0,
@@ -167,7 +176,16 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
             $importer = new \WPLMS_S1I\Importer( $logger, $idmap );
             $importer->set_dry_run( true );
             try {
-                $importer->run( $payload );
+                $stats = $importer->run( $payload );
+                $cl    = (array) ( $stats['commerce_linking_preflight'] ?? [] );
+                if ( $cl ) {
+                    $sell = (int) ( $cl['sellable_courses'] ?? 0 );
+                    $uns  = array_sum( (array) ( $cl['unsellable_reasons'] ?? [] ) );
+                    \WP_CLI::log( sprintf( 'Preflight sellable=%d unsellable=%d', $sell, $uns ) );
+                    foreach ( (array) ( $cl['unsellable_examples'] ?? [] ) as $ex ) {
+                        \WP_CLI::log( sprintf( ' - %s (%s)', $ex['course_slug'] ?? '', $ex['reason'] ?? '' ) );
+                    }
+                }
             } catch ( \Throwable $e ) {
                 \WP_CLI::error( $e->getMessage() );
             }
@@ -498,6 +516,15 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
             }
 
             $stats             = $importer->run( $payload );
+            $cl               = (array) ( $stats['commerce_linking_preflight'] ?? [] );
+            if ( $cl ) {
+                $sell = (int) ( $cl['sellable_courses'] ?? 0 );
+                $uns  = array_sum( (array) ( $cl['unsellable_reasons'] ?? [] ) );
+                \WP_CLI::log( sprintf( 'Preflight sellable=%d unsellable=%d', $sell, $uns ) );
+                foreach ( (array) ( $cl['unsellable_examples'] ?? [] ) as $ex ) {
+                    \WP_CLI::log( sprintf( ' - %s (%s)', $ex['course_slug'] ?? '', $ex['reason'] ?? '' ) );
+                }
+            }
             $ld_upgrade_status = [];
             if ( $run_ld_upgrades ) {
                 $callbacks = [
@@ -543,6 +570,10 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
                 'certificates_attached'        => (int) ( $stats['certificates_attached'] ?? 0 ),
                 'certificates_missing'         => (int) ( $stats['certificates_missing'] ?? 0 ),
                 'certificates_already_attached'=> (int) ( $stats['certificates_already_attached'] ?? 0 ),
+                'preflight_sellable_courses'   => (int) ( $cl['sellable_courses'] ?? 0 ),
+                'preflight_unsellable_no_product' => (int) ( $cl['unsellable_reasons']['no_product'] ?? 0 ),
+                'preflight_unsellable_not_publish' => (int) ( $cl['unsellable_reasons']['not_publish'] ?? 0 ),
+                'preflight_unsellable_no_price' => (int) ( $cl['unsellable_reasons']['no_price'] ?? 0 ),
             ];
             $report = "# Import Result\n\n|Metric|Count|\n|---|---|\n";
             foreach ( $metrics as $key => $val ) {
@@ -552,6 +583,12 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
                 $report .= "\n## courses_forced_closed_examples\n\n";
                 foreach ( (array) $stats['courses_forced_closed_examples'] as $slug ) {
                     $report .= sprintf( "- %s\n", $slug );
+                }
+            }
+            if ( ! empty( $cl['unsellable_examples'] ) ) {
+                $report .= "\n## preflight_unsellable_examples\n\n";
+                foreach ( (array) $cl['unsellable_examples'] as $ex ) {
+                    $report .= sprintf( "- %s (%s)\n", $ex['course_slug'] ?? '', $ex['reason'] ?? '' );
                 }
             }
             // orphans_imported counts will be added later
