@@ -356,7 +356,13 @@ class WPLMS_S1_Exporter {
         }
 
         // add orphans to analysis and finalize meta stats
-        $analysis['orphans'] = $export['orphans'];
+        if ( $export_mode === 'discover_all' ) {
+            $analysis['orphans'] = $export['orphans'];
+            $stats['units']       += count( $export['orphans']['units'] );
+            $stats['certificates']+= count( $export['orphans']['certificates'] );
+            $stats['quizzes']     += count( $export['orphans']['quizzes'] );
+            $stats['assignments'] += count( $export['orphans']['assignments'] );
+        }
         $export['analysis'] = $analysis;
 
         if ( ! empty( $analysis['lessons_missing_in_export'] ) ) {
@@ -454,44 +460,53 @@ class WPLMS_S1_Exporter {
                 'quizzes'      => $stats['quizzes'],
                 'assignments'  => $stats['assignments'],
             ),
-            'orphans' => array(
+        );
+
+        $export['mode'] = $export_mode;
+
+        if ( $export_mode === 'discover_all' ) {
+            $export_counts['orphans'] = array(
                 'units'        => count( $export['orphans']['units'] ),
                 'certificates' => count( $export['orphans']['certificates'] ),
                 'quizzes'      => count( $export['orphans']['quizzes'] ),
                 'assignments'  => count( $export['orphans']['assignments'] ),
-            ),
-        );
-        $sum_check = array();
-        foreach ( array( 'units','certificates','quizzes','assignments' ) as $t ) {
-            $sum_check[ $t . '_ok' ] = (
-                $export_counts['linked'][ $t ] + $export_counts['orphans'][ $t ] ===
-                array_sum( $wp_counts[ $t ] )
+            );
+            $sum_check = array();
+            foreach ( array( 'units','certificates','quizzes','assignments' ) as $t ) {
+                $sum_check[ $t . '_ok' ] = (
+                    $export_counts['linked'][ $t ] + $export_counts['orphans'][ $t ] ===
+                    array_sum( $wp_counts[ $t ] )
+                );
+            }
+
+            $export['stats'] = array(
+                'wp_counts'     => $wp_counts,
+                'export_counts' => $export_counts,
+                'sum_check'     => $sum_check,
+            );
+
+            // STATS.md
+            $md = "# Stats\n\n";
+            $md .= "| Type | WP Total | Linked | Orphans | OK |\n";
+            $md .= "|---|---|---|---|---|\n";
+            foreach ( array( 'units','certificates','quizzes','assignments' ) as $t ) {
+                $total = array_sum( $wp_counts[ $t ] );
+                $md .= sprintf(
+                    "| %s | %d | %d | %d | %s |\n",
+                    $t,
+                    $total,
+                    $export_counts['linked'][ $t ],
+                    $export_counts['orphans'][ $t ],
+                    $sum_check[ $t . '_ok' ] ? 'yes' : 'no'
+                );
+            }
+            file_put_contents( $csv_dir . '/STATS.md', $md );
+        } else {
+            $export['stats'] = array(
+                'wp_counts'     => $wp_counts,
+                'export_counts' => $export_counts,
             );
         }
-
-        $export['mode']  = $export_mode;
-        $export['stats'] = array(
-            'wp_counts'     => $wp_counts,
-            'export_counts' => $export_counts,
-            'sum_check'     => $sum_check,
-        );
-
-        // STATS.md
-        $md = "# Stats\n\n";
-        $md .= "| Type | WP Total | Linked | Orphans | OK |\n";
-        $md .= "|---|---|---|---|---|\n";
-        foreach ( array( 'units','certificates','quizzes','assignments' ) as $t ) {
-            $total = array_sum( $wp_counts[ $t ] );
-            $md .= sprintf(
-                "| %s | %d | %d | %d | %s |\n",
-                $t,
-                $total,
-                $export_counts['linked'][ $t ],
-                $export_counts['orphans'][ $t ],
-                $sum_check[ $t . '_ok' ] ? 'yes' : 'no'
-            );
-        }
-        file_put_contents( $csv_dir . '/STATS.md', $md );
 
         $export['export_meta']['stats']     = $stats;
         $export['export_meta']['discovery'] = $discovery;
