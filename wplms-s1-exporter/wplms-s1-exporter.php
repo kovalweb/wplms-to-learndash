@@ -229,7 +229,7 @@ class WPLMS_S1_Exporter {
         $exported_course_ids = array_map(function($c){ return (int)$c['old_id']; }, $export['courses']);
         $parents = array_map('intval', array_unique(array_merge($ids, $exported_course_ids)));
 
-        if ( $stats['courses'] > 0 && $export_mode !== 'strict' ) {
+        if ( $stats['courses'] > 0 && $export_mode === 'discover_all' ) {
             // Orphan units with assignments but not in any course
             $units_all = get_posts(array(
                 'post_type'=>'unit',
@@ -260,12 +260,10 @@ class WPLMS_S1_Exporter {
                 if ( $parent > 0 ) {
                     $entry['parent_course_old_id'] = $parent;
                 }
-                if ( $export_mode === 'discover_all' || ( $parent > 0 && in_array( $parent, $parents, true ) ) ) {
-                    $export['orphans']['units'][] = $entry;
-                    foreach ( $ass_ids as $aid ) {
-                        if ( ! isset( $used_assignments[ $aid ] ) ) {
-                            $used_assignments[ $aid ] = false;
-                        }
+                $export['orphans']['units'][] = $entry;
+                foreach ( $ass_ids as $aid ) {
+                    if ( ! isset( $used_assignments[ $aid ] ) ) {
+                        $used_assignments[ $aid ] = false;
                     }
                 }
             }
@@ -289,9 +287,7 @@ class WPLMS_S1_Exporter {
                         'edit_link' => get_edit_post_link( $ap->ID ),
                     );
                     if ($parent > 0) $entry['parent_course_old_id'] = $parent;
-                    if ($export_mode === 'discover_all' || ($parent > 0 && in_array($parent, $parents, true))) {
-                        $export['orphans']['assignments'][] = $entry;
-                    }
+                    $export['orphans']['assignments'][] = $entry;
                 }
             }
 
