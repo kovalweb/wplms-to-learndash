@@ -1305,23 +1305,34 @@ class Importer {
         $cert_old_id = 0;
         $cert_title  = '';
         $cert_slug   = '';
+        $source      = '';
 
         $ref = array_get( $course, 'certificate_ref', null );
-        if ( is_array( $ref ) && ( array_get( $ref, 'old_id' ) || array_get( $ref, 'slug' ) || array_get( $ref, 'title' ) ) ) {
+        if ( is_array( $ref ) ) {
             $cert_old_id = (int) array_get( $ref, 'old_id', 0 );
             $cert_title  = (string) array_get( $ref, 'title', '' );
             $cert_slug   = normalize_slug( array_get( $ref, 'slug', '' ) );
-        } else {
+            if ( $cert_old_id || $cert_slug || $cert_title ) {
+                $source = 'certificate_ref';
+            }
+        }
+        if ( $source === '' ) {
             $cert_old_id = (int) array_get( $course, 'certificate_old_id', 0 );
             $cert_slug   = normalize_slug( array_get( $course, 'certificate_slug', '' ) );
             $cert_title  = (string) array_get( $course, 'certificate_title', '' );
             if ( $cert_old_id <= 0 && $cert_slug === '' && $cert_title === '' ) {
                 $cert_old_id = (int) array_get( $course, 'certificates.0.old_id', 0 );
             }
-            if ( $cert_old_id <= 0 && $cert_slug === '' && $cert_title === '' ) {
-                $raw = array_get( $course, 'meta.vibe_certificate_template', 0 );
-                if ( is_array( $raw ) ) { $raw = reset( $raw ); }
-                $cert_old_id = (int) $raw;
+            if ( $cert_old_id > 0 || $cert_slug || $cert_title ) {
+                $source = 'certificate_old_id';
+            }
+        }
+        if ( $source === '' ) {
+            $raw = array_get( $course, 'meta.vibe_certificate_template', 0 );
+            if ( is_array( $raw ) ) { $raw = reset( $raw ); }
+            $cert_old_id = (int) $raw;
+            if ( $cert_old_id > 0 ) {
+                $source = 'meta_fallback';
             }
         }
 
@@ -1333,6 +1344,7 @@ class Importer {
                 'cert_new_id'   => 0,
                 'cert_title'    => $cert_title,
                 'cert_slug'     => $cert_slug,
+                'source'        => $source,
                 'reason'        => 'missing_reference',
             ];
             if ( is_array( $this->stats_ref ) ) {
@@ -1381,6 +1393,7 @@ class Importer {
             'cert_new_id'   => $cert_new_id,
             'cert_title'    => $cert_title,
             'cert_slug'     => $cert_slug,
+            'source'        => $source,
         ];
 
         if ( $cert_new_id <= 0 ) {
