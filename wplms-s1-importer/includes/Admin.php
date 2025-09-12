@@ -68,6 +68,15 @@ class Admin {
                                                 <?php if ( $missing ) : ?>
                                                         <li>Missing course references: <?php echo esc_html( implode( ', ', $missing ) ); ?></li>
                                                 <?php endif; ?>
+                                                <li>Sellable courses: <?php echo esc_html( array_get( $cl_pf, 'sellable_courses', 0 ) ); ?></li>
+                                                <?php $unsr = (array) array_get( $cl_pf, 'unsellable_reasons', [] ); ?>
+                                                <?php if ( $unsr ) : ?>
+                                                        <li>Unsellable courses: <?php foreach ( $unsr as $r => $c ) { echo esc_html( "$r=$c " ); } ?></li>
+                                                <?php endif; ?>
+                                                <?php $unsx = (array) array_get( $cl_pf, 'unsellable_examples', [] ); ?>
+                                                <?php if ( $unsx ) : ?>
+                                                        <li>Unsellable examples: <?php echo esc_html( implode( ', ', array_map( function( $e ) { return ( $e['course_slug'] ?? '' ) . ' (' . ( $e['reason'] ?? '' ) . ')'; }, $unsx ) ) ); ?></li>
+                                                <?php endif; ?>
                                         </ul>
                                 <?php endif; ?>
 
