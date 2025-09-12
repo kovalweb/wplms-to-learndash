@@ -164,6 +164,22 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
                         \WP_CLI::log( sprintf( ' - %s (%s)', $ex['course_slug'] ?? '', $ex['reason'] ?? '' ) );
                     }
                 }
+                $ignored = (array) ( $stats['ignored_orphans_in_related_mode'] ?? [] );
+                $ignored_ex = (array) ( $stats['ignored_orphans_in_related_mode_examples'] ?? [] );
+                if ( array_sum( $ignored ) > 0 ) {
+                    \WP_CLI::warning( sprintf(
+                        'ignored_orphans_in_related_mode units=%d quizzes=%d assignments=%d certificates=%d',
+                        $ignored['units'] ?? 0,
+                        $ignored['quizzes'] ?? 0,
+                        $ignored['assignments'] ?? 0,
+                        $ignored['certificates'] ?? 0
+                    ) );
+                    foreach ( $ignored_ex as $type => $items ) {
+                        foreach ( (array) $items as $ex ) {
+                            \WP_CLI::log( sprintf( ' - %s: %s', $type, $ex ) );
+                        }
+                    }
+                }
                 if ( $run_ld_upgrades ) {
                     $callbacks = [
                         'quizzes'   => 'learndash_data_upgrades_quizzes',
@@ -229,6 +245,22 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
                     \WP_CLI::log( sprintf( 'Preflight sellable=%d unsellable=%d', $sell, $uns ) );
                     foreach ( (array) ( $cl['unsellable_examples'] ?? [] ) as $ex ) {
                         \WP_CLI::log( sprintf( ' - %s (%s)', $ex['course_slug'] ?? '', $ex['reason'] ?? '' ) );
+                    }
+                }
+                $ignored = (array) ( $stats['ignored_orphans_in_related_mode'] ?? [] );
+                $ignored_ex = (array) ( $stats['ignored_orphans_in_related_mode_examples'] ?? [] );
+                if ( array_sum( $ignored ) > 0 ) {
+                    \WP_CLI::warning( sprintf(
+                        'ignored_orphans_in_related_mode units=%d quizzes=%d assignments=%d certificates=%d',
+                        $ignored['units'] ?? 0,
+                        $ignored['quizzes'] ?? 0,
+                        $ignored['assignments'] ?? 0,
+                        $ignored['certificates'] ?? 0
+                    ) );
+                    foreach ( $ignored_ex as $type => $items ) {
+                        foreach ( (array) $items as $ex ) {
+                            \WP_CLI::log( sprintf( ' - %s: %s', $type, $ex ) );
+                        }
                     }
                 }
             } catch ( \Throwable $e ) {
@@ -570,6 +602,22 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
                     \WP_CLI::log( sprintf( ' - %s (%s)', $ex['course_slug'] ?? '', $ex['reason'] ?? '' ) );
                 }
             }
+            $ignored = (array) ( $stats['ignored_orphans_in_related_mode'] ?? [] );
+            $ignored_ex = (array) ( $stats['ignored_orphans_in_related_mode_examples'] ?? [] );
+            if ( array_sum( $ignored ) > 0 ) {
+                \WP_CLI::warning( sprintf(
+                    'ignored_orphans_in_related_mode units=%d quizzes=%d assignments=%d certificates=%d',
+                    $ignored['units'] ?? 0,
+                    $ignored['quizzes'] ?? 0,
+                    $ignored['assignments'] ?? 0,
+                    $ignored['certificates'] ?? 0
+                ) );
+                foreach ( $ignored_ex as $type => $items ) {
+                    foreach ( (array) $items as $ex ) {
+                        \WP_CLI::log( sprintf( ' - %s: %s', $type, $ex ) );
+                    }
+                }
+            }
             $ld_upgrade_status = [];
             if ( $run_ld_upgrades ) {
                 $callbacks = [
@@ -619,6 +667,10 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
                 'preflight_unsellable_no_product' => (int) ( $cl['unsellable_reasons']['no_product'] ?? 0 ),
                 'preflight_unsellable_not_publish' => (int) ( $cl['unsellable_reasons']['not_publish'] ?? 0 ),
                 'preflight_unsellable_no_price' => (int) ( $cl['unsellable_reasons']['no_price'] ?? 0 ),
+                'ignored_orphans_in_related_mode_units' => (int) ( $stats['ignored_orphans_in_related_mode']['units'] ?? 0 ),
+                'ignored_orphans_in_related_mode_quizzes' => (int) ( $stats['ignored_orphans_in_related_mode']['quizzes'] ?? 0 ),
+                'ignored_orphans_in_related_mode_assignments' => (int) ( $stats['ignored_orphans_in_related_mode']['assignments'] ?? 0 ),
+                'ignored_orphans_in_related_mode_certificates' => (int) ( $stats['ignored_orphans_in_related_mode']['certificates'] ?? 0 ),
             ];
             $report = "# Import Result\n\n|Metric|Count|\n|---|---|\n";
             foreach ( $metrics as $key => $val ) {
@@ -634,6 +686,14 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
                 $report .= "\n## preflight_unsellable_examples\n\n";
                 foreach ( (array) $cl['unsellable_examples'] as $ex ) {
                     $report .= sprintf( "- %s (%s)\n", $ex['course_slug'] ?? '', $ex['reason'] ?? '' );
+                }
+            }
+            if ( array_sum( (array) ( $stats['ignored_orphans_in_related_mode'] ?? [] ) ) > 0 ) {
+                $report .= "\n## ignored_orphans_in_related_mode_examples\n\n";
+                foreach ( (array) ( $stats['ignored_orphans_in_related_mode_examples'] ?? [] ) as $type => $items ) {
+                    foreach ( (array) $items as $ex ) {
+                        $report .= sprintf( "- %s: %s\n", $type, $ex );
+                    }
                 }
             }
             // orphans_imported counts will be added later
