@@ -37,14 +37,18 @@ require_once WPLMS_S1I_DIR . 'includes/autoload.php';
 require_once WPLMS_S1I_DIR . 'includes/helpers.php';
 require_once WPLMS_S1I_DIR . 'includes/linking.php';
 
-// Hide payment buttons if linked product is not published or lacks a price
-add_filter( 'learndash_payment_buttons', function ( $html, $course_id ) {
+/**
+ * Return formatted price string for WooCommerce product linked to a course.
+ *
+ * @param int $course_id Course ID.
+ * @return string|null Formatted price or null if product missing/unpriced.
+ */
+function wplms_s1i_get_linked_product_price( int $course_id ): ?string {
     $product_id = \WPLMS_S1I\hv_get_linked_product_id_for_course( $course_id );
-    if ( ! $product_id ) {
-        return $html;
+    if ( ! $product_id || 'publish' !== get_post_status( $product_id ) ) {
+        return null;
     }
 
-    $status = get_post_status( $product_id );
     // Look for any numeric price meta value.
     $price = get_post_meta( $product_id, '_price', true );
     if ( '' === $price || ! is_numeric( $price ) ) {
@@ -53,13 +57,30 @@ add_filter( 'learndash_payment_buttons', function ( $html, $course_id ) {
     if ( '' === $price || ! is_numeric( $price ) ) {
         $price = get_post_meta( $product_id, '_regular_price', true );
     }
-
-    if ( 'publish' !== $status || ! is_numeric( $price ) ) {
-        return '';
+    if ( '' === $price || ! is_numeric( $price ) ) {
+        return null;
     }
 
-    return $html;
-}, 10, 2 );
+    return function_exists( 'wc_price' ) ? wc_price( $price ) : $price;
+}
+
+// Allow shortcodes in LearnDash payment button templates.
+add_filter( 'learndash_payment_buttons', 'do_shortcode', 10, 1 );
+
+// Hide payment buttons if linked product is not published or lacks a price.
+add_filter( 'learndash_payment_buttons', function ( $html, $course_id ) {
+    return wplms_s1i_get_linked_product_price( (int) $course_id ) ? $html : '';
+}, 999, 2 );
+
+// Shortcode: [ld_product_price course_id="123"]
+add_shortcode( 'ld_product_price', function ( $atts ): string {
+    $atts      = shortcode_atts( [ 'course_id' => get_the_ID() ], $atts, 'ld_product_price' );
+    $course_id = (int) $atts['course_id'];
+    if ( ! $course_id ) {
+        return '';
+    }
+    return wplms_s1i_get_linked_product_price( $course_id ) ?? '';
+} );
 
 // -----------------------------------------------------------------------------
 // Bootstrap

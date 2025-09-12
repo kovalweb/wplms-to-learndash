@@ -9,6 +9,12 @@ $GLOBALS['post_meta'] = [];
 $GLOBALS['options'] = [];
 $GLOBALS['filters'] = [];
 $GLOBALS['registered_post_types'] = [];
+$GLOBALS['shortcodes'] = [];
+
+function add_shortcode($tag, $callback) { $GLOBALS['shortcodes'][$tag] = $callback; }
+function do_shortcode($content) { return $content; }
+function shortcode_atts($pairs, $atts, $shortcode = '') { return array_merge($pairs, array_intersect_key($atts, $pairs)); }
+function get_the_ID() { return 0; }
 
 function add_filter($hook, $callback, $priority = 10, $accepted_args = 1) {
     $GLOBALS['filters'][$hook][] = $callback;
