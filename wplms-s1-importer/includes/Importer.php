@@ -82,6 +82,8 @@ class Importer {
             'orphan_certificate_skipped_missing_identifiers_examples' => [],
             'orphans_imported' => [ 'units'=>0, 'quizzes'=>0, 'assignments'=>0, 'certificates'=>0 ],
             'orphans_skipped'  => [ 'units'=>0, 'quizzes'=>0, 'assignments'=>0, 'certificates'=>0 ],
+            'ignored_orphans_in_related_mode' => [ 'units'=>0, 'quizzes'=>0, 'assignments'=>0, 'certificates'=>0 ],
+            'ignored_orphans_in_related_mode_examples' => [ 'units'=>[], 'quizzes'=>[], 'assignments'=>[], 'certificates'=>[] ],
         ];
 
         $this->stats_ref =& $stats;
@@ -210,8 +212,37 @@ class Importer {
         }
 
         // 3) Orphans
+        $orph = (array) array_get( $payload, 'orphans', [] );
+        if ( ! $import_orphans && $orph ) {
+            $types = [ 'units', 'quizzes', 'assignments', 'certificates' ];
+            $cnts  = [ 'units'=>0, 'quizzes'=>0, 'assignments'=>0, 'certificates'=>0 ];
+            $examples = [ 'units'=>[], 'quizzes'=>[], 'assignments'=>[], 'certificates'=>[] ];
+            foreach ( $types as $t ) {
+                $items = (array) array_get( $orph, $t, [] );
+                $cnts[ $t ] = count( $items );
+                if ( $items ) {
+                    foreach ( $items as $item ) {
+                        $slug = normalize_slug( array_get( $item, 'current_slug', array_get( $item, 'slug', array_get( $item, 'post.post_name', '' ) ) ) );
+                        if ( ! $slug ) {
+                            $oid = (int) array_get( $item, 'old_id', 0 );
+                            $slug = $oid ? 'id-' . $oid : '';
+                        }
+                        if ( $slug ) {
+                            $examples[ $t ][] = $slug;
+                            if ( count( $examples[ $t ] ) >= 5 ) {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            $stats['ignored_orphans_in_related_mode'] = $cnts;
+            $stats['ignored_orphans_in_related_mode_examples'] = $examples;
+            if ( array_sum( $cnts ) > 0 ) {
+                $this->logger->write( 'ignored_orphans_in_related_mode', [ 'counts' => $cnts, 'examples' => $examples ] );
+            }
+        }
         if ( $import_orphans ) {
-            $orph = (array) array_get( $payload, 'orphans', [] );
             foreach ( (array) array_get( $orph, 'units', [] ) as $unit ) {
                 $lres = $this->import_lesson( $unit, 0, 0, true );
                 if ( $lres ) {
