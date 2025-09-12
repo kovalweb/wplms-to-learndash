@@ -37,12 +37,27 @@ require_once WPLMS_S1I_DIR . 'includes/autoload.php';
 require_once WPLMS_S1I_DIR . 'includes/helpers.php';
 require_once WPLMS_S1I_DIR . 'includes/linking.php';
 
-// Hide payment buttons if linked product is not published
+// Hide payment buttons if linked product is not published or lacks a price
 add_filter( 'learndash_payment_buttons', function ( $html, $course_id ) {
     $product_id = \WPLMS_S1I\hv_get_linked_product_id_for_course( $course_id );
-    if ( $product_id && 'publish' !== get_post_status( $product_id ) ) {
+    if ( ! $product_id ) {
+        return $html;
+    }
+
+    $status = get_post_status( $product_id );
+    // Look for any numeric price meta value.
+    $price = get_post_meta( $product_id, '_price', true );
+    if ( '' === $price || ! is_numeric( $price ) ) {
+        $price = get_post_meta( $product_id, '_sale_price', true );
+    }
+    if ( '' === $price || ! is_numeric( $price ) ) {
+        $price = get_post_meta( $product_id, '_regular_price', true );
+    }
+
+    if ( 'publish' !== $status || ! is_numeric( $price ) ) {
         return '';
     }
+
     return $html;
 }, 10, 2 );
 
