@@ -108,6 +108,9 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
          *
          * [--dry]
          * : Analyze only; do not create posts.
+         *
+         * [--run-ld-upgrades]
+         * : Run LearnDash data-upgrade routines after import.
          */
         public function import( $args, $assoc ) {
             $path = $assoc['file'] ?? '';
@@ -122,10 +125,11 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
                 \WP_CLI::error( 'Failed to decode JSON: ' . json_last_error_msg() );
             }
 
-            $dry      = isset( $assoc['dry'] );
-            $logger   = new \WPLMS_S1I\Logger();
-            $idmap    = new \WPLMS_S1I\IdMap();
-            $importer = new \WPLMS_S1I\Importer( $logger, $idmap );
+            $dry             = isset( $assoc['dry'] );
+            $run_ld_upgrades = isset( $assoc['run-ld-upgrades'] );
+            $logger          = new \WPLMS_S1I\Logger();
+            $idmap           = new \WPLMS_S1I\IdMap();
+            $importer        = new \WPLMS_S1I\Importer( $logger, $idmap );
             $importer->set_dry_run( $dry );
             try {
                 $stats = $importer->run( $payload );
@@ -136,6 +140,24 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
                     \WP_CLI::log( sprintf( 'Preflight sellable=%d unsellable=%d', $sell, $uns ) );
                     foreach ( (array) ( $cl['unsellable_examples'] ?? [] ) as $ex ) {
                         \WP_CLI::log( sprintf( ' - %s (%s)', $ex['course_slug'] ?? '', $ex['reason'] ?? '' ) );
+                    }
+                }
+                if ( $run_ld_upgrades ) {
+                    $callbacks = [
+                        'quizzes'   => 'learndash_data_upgrades_quizzes',
+                        'questions' => 'learndash_data_upgrades_questions',
+                    ];
+                    foreach ( $callbacks as $label => $fn ) {
+                        if ( function_exists( $fn ) ) {
+                            try {
+                                $fn();
+                                \WP_CLI::log( sprintf( 'LearnDash upgrade %s: success', $label ) );
+                            } catch ( \Throwable $e ) {
+                                \WP_CLI::warning( sprintf( 'LearnDash upgrade %s error: %s', $label, $e->getMessage() ) );
+                            }
+                        } else {
+                            \WP_CLI::warning( sprintf( 'LearnDash upgrade %s missing function', $label ) );
+                        }
                     }
                 }
                 \WP_CLI::success( sprintf(

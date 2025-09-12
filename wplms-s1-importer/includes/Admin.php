@@ -125,6 +125,10 @@ class Admin {
                                                         <th scope="row"><label for="wplms_s1i_recheck">Recheck products</label></th>
                                                         <td><label><input type="checkbox" name="recheck" id="wplms_s1i_recheck" value="1" /> Verify product status & visibility</label></td>
                                                 </tr>
+                                                <tr>
+                                                        <th scope="row"><label for="wplms_s1i_ld_upgrades">Run LearnDash Data Upgrades</label></th>
+                                                        <td><label><input type="checkbox" name="run_ld_upgrades" id="wplms_s1i_ld_upgrades" value="1" /> Run LearnDash data-upgrade routines after import</label></td>
+                                                </tr>
                                         </table>
                                         <?php \submit_button( 'Start Import' ); ?>
                                 </form>
@@ -162,8 +166,9 @@ class Admin {
 			if ( ! \current_user_can( 'manage_options' ) ) \wp_die( 'Unauthorized' );
 			\check_admin_referer( 'wplms_s1i_run' );
 
-                        $dry = isset( $_POST['dry'] ) && $_POST['dry'] == '1';
-                        $recheck = isset( $_POST['recheck'] ) && $_POST['recheck'] == '1';
+                        $dry              = isset( $_POST['dry'] ) && $_POST['dry'] == '1';
+                        $recheck          = isset( $_POST['recheck'] ) && $_POST['recheck'] == '1';
+                        $run_ld_upgrades  = isset( $_POST['run_ld_upgrades'] ) && $_POST['run_ld_upgrades'] == '1';
 
 			// handle upload
 			if ( empty( $_FILES['wplms_s1i_file'] ) || empty( $_FILES['wplms_s1i_file']['tmp_name'] ) || empty( $_FILES['wplms_s1i_file']['size'] ) ) {
@@ -207,9 +212,24 @@ class Admin {
                         ];
 
                         try {
-                                $stats          = $importer->run( $data );
+                                $stats           = $importer->run( $data );
                                 $report['stats'] = $stats;
                                 $report['log']   = $logger->path();
+                                if ( $run_ld_upgrades ) {
+                                        $callbacks = [
+                                                'learndash_data_upgrades_quizzes',
+                                                'learndash_data_upgrades_questions',
+                                        ];
+                                        foreach ( $callbacks as $fn ) {
+                                                if ( function_exists( $fn ) ) {
+                                                        try {
+                                                                $fn();
+                                                        } catch ( \Throwable $ex ) {
+                                                                $logger->write( 'ld upgrade failed: ' . $fn . ' ' . $ex->getMessage() );
+                                                        }
+                                                }
+                                        }
+                                }
                         } catch ( \Throwable $e ) {
                                 $report['error'] = $e->getMessage();
                                 $report['log']   = $logger->path();
