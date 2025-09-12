@@ -21,6 +21,7 @@ foreach ($files as $f) {
 
 $json_path = __DIR__ . '/sample-simulate.json';
 $payload = [
+    'mode' => 'discover_all',
     'courses' => [
         [ 'old_id' => 1, 'current_slug' => 'course-a', 'post' => ['post_title' => 'Course A', 'status' => 'publish'] ],
     ],

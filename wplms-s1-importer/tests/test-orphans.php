@@ -131,6 +131,7 @@ $idmap  = new IdMap();
 $importer = new Importer( $logger, $idmap );
 
 $payload = [
+    'mode' => 'discover_all',
     'orphans' => [
         'units' => [ [ 'old_id'=>101, 'post'=>['post_title'=>'Orphan Lesson','post_content'=>'','status'=>'publish'] ] ],
         'quizzes' => [ [ 'old_id'=>201, 'post'=>['post_title'=>'Orphan Quiz','post_content'=>''] ] ],
