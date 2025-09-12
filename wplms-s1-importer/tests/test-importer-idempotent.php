@@ -157,6 +157,29 @@ $importer->run($payload);
 $importer->run($payload);
 $stats2 = get_option(WPLMS_S1I_OPT_RUNSTATS, []);
 $expected_courses = 2;
+
+// gather course IDs
+$course_ids = [];
+foreach ($GLOBALS['posts'] as $id => $post) {
+    if (($post['post_type'] ?? '') === 'sfwd-courses') {
+        $course_ids[] = $id;
+    }
+}
+foreach ($course_ids as $cid) {
+    if (get_post_meta($cid, 'course_price_type', true) !== 'closed') {
+        echo "course_price_type not closed\n";
+        exit(1);
+    }
+    if (isset($GLOBALS['post_meta'][$cid]['course_price'])) {
+        echo "course_price persisted\n";
+        exit(1);
+    }
+    if (get_post_meta($cid, 'ld_course_access_mode', true) !== 'closed') {
+        echo "ld_course_access_mode mismatch\n";
+        exit(1);
+    }
+}
+
 if ($stats2['courses_created'] != 0) {
     echo "courses_created mismatch\n";
     exit(1);
@@ -167,6 +190,14 @@ if ($stats2['courses_updated'] != $expected_courses) {
 }
 if ($stats2['courses_linked_to_products'] != $expected_courses) {
     echo "courses_linked_to_products mismatch\n";
+    exit(1);
+}
+if (($stats2['access_closed'] ?? 0) != $expected_courses) {
+    echo "access_closed mismatch\n";
+    exit(1);
+}
+if (!empty($stats2['access_paid'])) {
+    echo "access_paid should be zero\n";
     exit(1);
 }
 

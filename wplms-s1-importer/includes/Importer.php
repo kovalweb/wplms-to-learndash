@@ -806,6 +806,8 @@ class Importer {
 
         if ( $product_id ) {
             hv_ld_link_course_to_product( $new_id, $product_id, $this->logger );
+            $access     = 'closed';
+            $price_type = 'closed';
             if ( is_array( $this->stats_ref ) ) {
                 $this->stats_ref['courses_linked_to_products'] = array_get( $this->stats_ref, 'courses_linked_to_products', 0 ) + 1;
                 if ( \get_post_status( $product_id ) === 'publish' ) {
@@ -826,51 +828,14 @@ class Importer {
             }
         }
 
-        if ( $this->recheck ) {
-            if ( $product_id && get_post( $product_id ) ) {
-                $p_status = get_post_status( $product_id );
-                $terms    = get_the_terms( $product_id, 'product_visibility' );
-                $hidden   = false;
-                if ( is_array( $terms ) ) {
-                    foreach ( $terms as $t ) {
-                        if ( in_array( $t->slug, [ 'exclude-from-catalog', 'exclude-from-search' ], true ) ) {
-                            $hidden = true;
-                            break;
-                        }
-                    }
-                }
-                $p_price   = null;
-                $meta_vals = [ get_post_meta( $product_id, '_price', true ), get_post_meta( $product_id, '_sale_price', true ), get_post_meta( $product_id, '_regular_price', true ) ];
-                foreach ( $meta_vals as $mv ) {
-                    if ( is_numeric( $mv ) ) { $p_price = (float) $mv; break; }
-                }
-                if ( $p_status === 'publish' && ! $hidden && $p_price !== null ) {
-                    $access     = 'paid';
-                    $price_type = 'buy now';
-                    $price      = round( $p_price, 2 );
-                } else {
-                    $access     = 'closed';
-                    $price_type = 'closed';
-                    $reason     = 'product_not_published';
-                    if ( $p_status === 'publish' && ! $hidden && $p_price === null ) {
-                        $reason = 'no_price_on_product';
-                    }
-                    if ( is_array( $this->stats_ref ) ) {
-                        $this->stats_ref['courses_forced_closed_no_product'] = array_get( $this->stats_ref, 'courses_forced_closed_no_product', 0 ) + 1;
-                        if ( count( $this->stats_ref['courses_forced_closed_examples'] ) < 10 ) {
-                            $this->stats_ref['courses_forced_closed_examples'][] = $slug;
-                        }
-                    }
-                }
-            } else {
-                $access     = 'closed';
-                $price_type = 'closed';
-                $reason     = 'no_product';
-                if ( is_array( $this->stats_ref ) ) {
-                    $this->stats_ref['courses_forced_closed_no_product'] = array_get( $this->stats_ref, 'courses_forced_closed_no_product', 0 ) + 1;
-                    if ( count( $this->stats_ref['courses_forced_closed_examples'] ) < 10 ) {
-                        $this->stats_ref['courses_forced_closed_examples'][] = $slug;
-                    }
+        if ( $this->recheck && ! $product_id ) {
+            $access     = 'closed';
+            $price_type = 'closed';
+            $reason     = 'no_product';
+            if ( is_array( $this->stats_ref ) ) {
+                $this->stats_ref['courses_forced_closed_no_product'] = array_get( $this->stats_ref, 'courses_forced_closed_no_product', 0 ) + 1;
+                if ( count( $this->stats_ref['courses_forced_closed_examples'] ) < 10 ) {
+                    $this->stats_ref['courses_forced_closed_examples'][] = $slug;
                 }
             }
         }
@@ -883,6 +848,8 @@ class Importer {
             \learndash_update_setting( $new_id, 'course_price_type', $price_type );
             if ( $price_type === 'buy now' && $price > 0 ) {
                 \learndash_update_setting( $new_id, 'course_price', $price );
+            } elseif ( $product_id ) {
+                \delete_post_meta( $new_id, 'course_price' );
             } else {
                 \learndash_update_setting( $new_id, 'course_price', '' );
             }
