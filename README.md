@@ -4,9 +4,8 @@ Utilities for migrating WPLMS content into LearnDash.
 
 ## Importer
 
-The importer skips orphan certificates during partial imports by default. Use the WP-CLI flag
-`--import-orphan-certificates` or the "Import orphan certificates" checkbox in the admin UI to
-force importing them.
+The importer processes orphan content only when the export was generated in
+`discover_all` mode. Other export modes skip orphans automatically.
 
 ## Shortcodes
 

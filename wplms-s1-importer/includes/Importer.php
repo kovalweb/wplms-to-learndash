@@ -7,7 +7,6 @@ class Importer {
     private $dry_run = false;
     private $recheck = false;
     private $suppress_emails = false;
-    private $import_orphan_certificates = null;
     private $stats_ref = null;
     private $term_index = [
         'course-cat' => [ 'slug' => [], 'id' => [] ],
@@ -22,18 +21,14 @@ class Importer {
     public function set_dry_run( $dry ) { $this->dry_run = (bool) $dry; }
     public function set_recheck( $flag ) { $this->recheck = (bool) $flag; }
     public function set_disable_emails( $flag ) { $this->suppress_emails = (bool) $flag; }
-    public function set_import_orphan_certificates( $flag ) { $this->import_orphan_certificates = (bool) $flag; }
 
     public function run( array $payload ) {
         if ( ! is_array( $payload ) ) {
             throw new \RuntimeException( 'Invalid import payload' );
         }
 
-        $selected = (array) array_get( $payload, 'export_meta.selected_ids', [] );
-        $is_partial = ! empty( $selected );
-        if ( null === $this->import_orphan_certificates ) {
-            $this->import_orphan_certificates = ! $is_partial;
-        }
+        $mode = (string) array_get( $payload, 'mode', array_get( $payload, 'export_meta.export_mode', '' ) );
+        $import_orphans = ( $mode === 'discover_all' );
 
         $suppress = $this->suppress_emails;
         if ( $suppress ) {
@@ -215,43 +210,43 @@ class Importer {
         }
 
         // 3) Orphans
-        $orph = (array) array_get( $payload, 'orphans', [] );
-        foreach ( (array) array_get( $orph, 'units', [] ) as $unit ) {
-            $lres = $this->import_lesson( $unit, 0, 0, true );
-            if ( $lres ) {
-                if ( array_get( $lres, 'created' ) ) {
-                    $stats['lessons_created']++;
+        if ( $import_orphans ) {
+            $orph = (array) array_get( $payload, 'orphans', [] );
+            foreach ( (array) array_get( $orph, 'units', [] ) as $unit ) {
+                $lres = $this->import_lesson( $unit, 0, 0, true );
+                if ( $lres ) {
+                    if ( array_get( $lres, 'created' ) ) {
+                        $stats['lessons_created']++;
+                    } else {
+                        $stats['lessons_updated']++;
+                    }
+                    if ( array_get( $lres, 'zero_duration' ) ) {
+                        $stats['lessons_zero_duration']++;
+                    }
+                    $stats['orphans_units']++;
+                    $stats['orphans_imported']['units']++;
                 } else {
-                    $stats['lessons_updated']++;
+                    $stats['orphans_skipped']['units']++;
                 }
-                if ( array_get( $lres, 'zero_duration' ) ) {
-                    $stats['lessons_zero_duration']++;
+            }
+            foreach ( (array) array_get( $orph, 'quizzes', [] ) as $quiz ) {
+                $ok = $this->import_quiz( $quiz, 0, true );
+                if ( $ok ) {
+                    $stats['orphans_quizzes']++;
+                    $stats['orphans_imported']['quizzes']++;
+                } else {
+                    $stats['orphans_skipped']['quizzes']++;
                 }
-                $stats['orphans_units']++;
-                $stats['orphans_imported']['units']++;
-            } else {
-                $stats['orphans_skipped']['units']++;
             }
-        }
-        foreach ( (array) array_get( $orph, 'quizzes', [] ) as $quiz ) {
-            $ok = $this->import_quiz( $quiz, 0, true );
-            if ( $ok ) {
-                $stats['orphans_quizzes']++;
-                $stats['orphans_imported']['quizzes']++;
-            } else {
-                $stats['orphans_skipped']['quizzes']++;
+            foreach ( (array) array_get( $orph, 'assignments', [] ) as $assn ) {
+                $ok = $this->import_assignment( $assn, 0, 0, true );
+                if ( $ok ) {
+                    $stats['orphans_assignments']++;
+                    $stats['orphans_imported']['assignments']++;
+                } else {
+                    $stats['orphans_skipped']['assignments']++;
+                }
             }
-        }
-        foreach ( (array) array_get( $orph, 'assignments', [] ) as $assn ) {
-            $ok = $this->import_assignment( $assn, 0, 0, true );
-            if ( $ok ) {
-                $stats['orphans_assignments']++;
-                $stats['orphans_imported']['assignments']++;
-            } else {
-                $stats['orphans_skipped']['assignments']++;
-            }
-        }
-        if ( $this->import_orphan_certificates ) {
             foreach ( (array) array_get( $orph, 'certificates', [] ) as $cert ) {
                 $cinfo = $this->import_certificate( $cert, true );
                 $cid = (int) array_get( $cinfo, 'id', 0 );
