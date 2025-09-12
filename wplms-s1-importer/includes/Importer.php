@@ -75,6 +75,8 @@ class Importer {
             'certificates_missing'    => 0,
             'certificates_already_attached' => 0,
             'certificates_missing_examples' => [],
+            'orphan_certificate_skipped_missing_identifiers' => 0,
+            'orphan_certificate_skipped_missing_identifiers_examples' => [],
             'orphans_imported' => [ 'units'=>0, 'quizzes'=>0, 'assignments'=>0, 'certificates'=>0 ],
             'orphans_skipped'  => [ 'units'=>0, 'quizzes'=>0, 'assignments'=>0, 'certificates'=>0 ],
         ];
@@ -1056,7 +1058,9 @@ class Importer {
             $created = true;
         }
 
-        \update_post_meta( $new_id, '_wplms_old_id', $old_id );
+        if ( $old_id > 0 ) {
+            \update_post_meta( $new_id, '_wplms_old_id', $old_id );
+        }
         if ( $course_new_id ) { \update_post_meta( $new_id, 'course_id', (int) $course_new_id ); }
         if ( $is_orphan ) { \update_post_meta( $new_id, '_wplms_orphan', 1 ); \update_post_meta( $new_id, '_hv_orphan', 1 ); }
         $links = (array) array_get( $quiz, 'links', [] );
@@ -1168,11 +1172,28 @@ class Importer {
         $old_id = (int) array_get( $cert, 'old_id', 0 );
         $title  = (string) array_get( $cert, 'post.post_title', '' );
         $slug   = normalize_slug( array_get( $cert, 'post.post_name', '' ) );
-        if ( $title === '' && $slug === '' ) {
-            $title = 'Certificate ' . $old_id;
-            $slug  = 'certificate-' . $old_id;
-        } elseif ( $slug === '' ) {
+
+        if ( $old_id <= 0 && ! $slug && $title === '' ) {
+            $log = [ 'old_id' => $old_id, 'slug' => $slug, 'title' => $title ];
+            if ( is_array( $this->stats_ref ) ) {
+                $this->stats_ref['orphan_certificate_skipped_missing_identifiers'] = array_get( $this->stats_ref, 'orphan_certificate_skipped_missing_identifiers', 0 ) + 1;
+                if ( count( $this->stats_ref['orphan_certificate_skipped_missing_identifiers_examples'] ) < 10 ) {
+                    $this->stats_ref['orphan_certificate_skipped_missing_identifiers_examples'][] = $log;
+                }
+            }
+            $this->logger->write( 'orphan_certificate_skipped_missing_identifiers', $log );
+            return [ 'id' => 0, 'created' => false ];
+        }
+
+        if ( $title === '' && ! $slug ) {
+            if ( $old_id > 0 ) {
+                $title = 'Certificate ' . $old_id;
+                $slug  = 'certificate-' . $old_id;
+            }
+        } elseif ( ! $slug ) {
             $slug = normalize_slug( $title );
+        } elseif ( $title === '' ) {
+            $title = $slug;
         }
 
         $existing = 0;
@@ -1235,7 +1256,9 @@ class Importer {
             $created = true;
         }
 
-        \update_post_meta( $new_id, '_wplms_old_id', $old_id );
+        if ( $old_id > 0 ) {
+            \update_post_meta( $new_id, '_wplms_old_id', $old_id );
+        }
 
         $fimg = array_get( $cert, 'post.featured_image', '' );
         if ( extract_url( $fimg ) !== '' ) {
@@ -1256,7 +1279,9 @@ class Importer {
             \update_post_meta( $new_id, '_ld_certificate_background_image_url', \esc_url_raw( $bg_url ) );
         }
 
-        $this->idmap->set( 'certificate', $old_id, $new_id, $slug );
+        if ( $old_id > 0 ) {
+            $this->idmap->set( 'certificate', $old_id, $new_id, $slug );
+        }
         if ( $is_orphan ) {
             \update_post_meta( $new_id, '_wplms_orphan', 1 );
             \update_post_meta( $new_id, '_hv_orphan', 1 );
