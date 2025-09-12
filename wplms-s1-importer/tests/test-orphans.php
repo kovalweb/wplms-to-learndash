@@ -135,16 +135,32 @@ $payload = [
         'units' => [ [ 'old_id'=>101, 'post'=>['post_title'=>'Orphan Lesson','post_content'=>'','status'=>'publish'] ] ],
         'quizzes' => [ [ 'old_id'=>201, 'post'=>['post_title'=>'Orphan Quiz','post_content'=>''] ] ],
         'assignments' => [ [ 'old_id'=>301, 'post'=>['post_title'=>'Orphan Assignment','post_content'=>'','status'=>'publish'] ] ],
-        'certificates' => [ [ 'old_id'=>401, 'post'=>['post_title'=>'Orphan Cert','post_content'=>''] ] ],
+        'certificates' => [
+            [ 'old_id'=>401, 'post'=>['post_title'=>'Orphan Cert','post_content'=>''] ],
+            [ 'post'=>['post_content'=>''] ],
+        ],
     ]
 ];
 
 $importer->run( $payload );
 $importer->run( $payload );
 $stats = get_option( WPLMS_S1I_OPT_RUNSTATS, [] );
-if ( $stats['orphans_units'] != 1 || $stats['orphans_quizzes'] != 1 || $stats['orphans_assignments'] != 1 || $stats['orphans_certificates'] != 1 ) {
+ $ok = true;
+ if ( $stats['orphans_units'] != 1 || $stats['orphans_quizzes'] != 1 || $stats['orphans_assignments'] != 1 || $stats['orphans_certificates'] != 1 ) {
     echo "orphans import not idempotent\n";
+    $ok = false;
+ }
+ if ( ($stats['orphan_certificate_skipped_missing_identifiers'] ?? 0) != 1 ) {
+    echo "orphan certificate skip count mismatch\n";
+    $ok = false;
+ }
+ $examples = $stats['orphan_certificate_skipped_missing_identifiers_examples'] ?? [];
+ if ( count( $examples ) != 1 ) {
+    echo "orphan certificate skip examples mismatch\n";
+    $ok = false;
+ }
+ if ( ! $ok ) {
     exit(1);
-}
-echo "Orphans import test passed\n";
+ }
+ echo "Orphans import test passed\n";
 }
