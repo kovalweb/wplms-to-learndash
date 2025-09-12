@@ -248,10 +248,23 @@ class WPLMS_S1_Exporter {
 
                 $ass_ids = $this->extract_assignments_from_unit( $uid, $warnings );
                 $parent  = (int) get_post_field( 'post_parent', $uid );
+                $old_id = (int) $up->ID;
+                if ( ! $old_id ) {
+                    $warnings['generic'][] = 'Skipped orphan unit with missing ID';
+                    continue;
+                }
+                $slug  = sanitize_title( $up->post_name );
+                $title = $up->post_title;
+                if ( $title === '' ) {
+                    $title = 'Unit ' . $old_id;
+                }
+                if ( $slug === '' ) {
+                    $slug = sanitize_title( 'unit-' . $old_id );
+                }
                 $entry   = array(
-                    'old_id'      => (int) $up->ID,
-                    'slug'        => $up->post_name,
-                    'title'       => $up->post_title,
+                    'old_id'      => $old_id,
+                    'slug'        => $slug,
+                    'title'       => $title,
                     'status'      => $up->post_status,
                     'assignments' => array_values( array_unique( $ass_ids ) ),
                     'reason'      => 'no_course_link',
@@ -277,11 +290,24 @@ class WPLMS_S1_Exporter {
             ));
             foreach ($assign_posts as $ap) {
                 if ( ! isset($used_assignments[$ap->ID]) ) {
+                    $old_id = (int) $ap->ID;
+                    if ( ! $old_id ) {
+                        $warnings['generic'][] = 'Skipped orphan assignment with missing ID';
+                        continue;
+                    }
+                    $slug  = sanitize_title( $ap->post_name );
+                    $title = $ap->post_title;
+                    if ( $title === '' ) {
+                        $title = 'Assignment ' . $old_id;
+                    }
+                    if ( $slug === '' ) {
+                        $slug = sanitize_title( 'assignment-' . $old_id );
+                    }
                     $parent = (int) get_post_field('post_parent', $ap->ID);
                     $entry = array(
-                        'old_id'  => (int)$ap->ID,
-                        'slug'    => $ap->post_name,
-                        'title'   => $ap->post_title,
+                        'old_id'  => $old_id,
+                        'slug'    => $slug,
+                        'title'   => $title,
                         'status'  => $ap->post_status,
                         'reason'  => 'not_in_curriculum',
                         'edit_link' => get_edit_post_link( $ap->ID ),
@@ -300,10 +326,23 @@ class WPLMS_S1_Exporter {
             ));
             foreach ( $cert_posts as $cp ) {
                 if ( isset( $used_certificates[ $cp->ID ] ) ) continue;
+                $old_id = (int) $cp->ID;
+                if ( ! $old_id ) {
+                    $warnings['generic'][] = 'Skipped orphan certificate with missing ID';
+                    continue;
+                }
+                $slug  = sanitize_title( $cp->post_name );
+                $title = $cp->post_title;
+                if ( $title === '' ) {
+                    $title = 'Certificate ' . $old_id;
+                }
+                if ( $slug === '' ) {
+                    $slug = sanitize_title( 'certificate-' . $old_id );
+                }
                 $export['orphans']['certificates'][] = array(
-                    'old_id'    => (int) $cp->ID,
-                    'slug'      => $cp->post_name,
-                    'title'     => $cp->post_title,
+                    'old_id'    => $old_id,
+                    'slug'      => $slug,
+                    'title'     => $title,
                     'status'    => $cp->post_status,
                     'reason'    => 'no_course_link',
                     'edit_link' => get_edit_post_link( $cp->ID ),
@@ -1114,11 +1153,24 @@ class WPLMS_S1_Exporter {
             $has_parent = !empty(array_intersect($all, $parent_course_ids));
             if (!empty($missing)) {
                 if ($export_mode === 'discover_all' || $has_parent) {
-                    $qp = get_post( $qid );
+                    $qp     = get_post( $qid );
+                    $old_id = (int) $qid;
+                    if ( ! $old_id ) {
+                        $warnings['generic'][] = 'Skipped orphan quiz with missing ID';
+                        continue;
+                    }
+                    $slug  = $qp ? sanitize_title( $qp->post_name ) : '';
+                    $title = $qp ? $qp->post_title : '';
+                    if ( $title === '' ) {
+                        $title = 'Quiz ' . $old_id;
+                    }
+                    if ( $slug === '' ) {
+                        $slug = sanitize_title( 'quiz-' . $old_id );
+                    }
                     $out[] = array(
-                        'old_id'          => (int)$qid,
-                        'slug'            => $qp ? $qp->post_name : '',
-                        'title'           => $qp ? $qp->post_title : '',
+                        'old_id'          => $old_id,
+                        'slug'            => $slug,
+                        'title'           => $title,
                         'status'          => $qp ? $qp->post_status : '',
                         'edit_link'       => $qp ? get_edit_post_link( $qid ) : '',
                         'links'           => $links,
