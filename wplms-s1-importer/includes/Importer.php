@@ -74,6 +74,10 @@ class Importer {
             'courses_forced_closed_examples' => [],
             'linked_publish'          => 0,
             'linked_draft'            => 0,
+            'button_url_set_count'    => 0,
+            'button_url_set_examples' => [],
+            'button_url_cleared_count' => 0,
+            'button_url_cleared_examples' => [],
             'certificates_attached'   => 0,
             'certificates_missing'    => 0,
             'certificates_already_attached' => 0,
@@ -832,6 +836,7 @@ class Importer {
 
         if ( $product_id ) {
             hv_ld_link_course_to_product( $new_id, $product_id, $this->logger );
+            hv_ld_sync_button_url( $new_id, $product_id, $this->logger, $this->stats_ref );
             $access     = 'closed';
             $price_type = 'closed';
             if ( is_array( $this->stats_ref ) ) {
@@ -865,6 +870,9 @@ class Importer {
                 }
             }
         }
+
+        hv_ld_sync_button_url( $new_id, $product_id, $this->logger, $this->stats_ref );
+
         if ( $reason ) {
             $this->logger->write( 'recheck adjusted access', [ 'old_id' => $old_id, 'reason' => $reason ] );
         }
