@@ -8,6 +8,7 @@ class CLI {
     public static function register() {
         \WP_CLI::add_command( 'wplms-import reset', [ __CLASS__, 'cmd_reset' ] );
         \WP_CLI::add_command( 'wplms-import dedupe-certs', [ __CLASS__, 'cmd_dedupe_certs' ] );
+        \WP_CLI::add_command( 'wplms-import sync-button-url', [ __CLASS__, 'cmd_sync_button_url' ] );
     }
 
     public static function cmd_reset( $args, $assoc ) {
@@ -38,6 +39,42 @@ class CLI {
         }
         \WP_CLI::log( 'Log: ' . ( $result['log'] ?? '' ) );
         \WP_CLI::success( $dry ? 'Dry run complete.' : 'Cleanup complete.' );
+    }
+
+    public static function cmd_sync_button_url( $args, $assoc ) {
+        $course = isset( $assoc['course'] ) ? (int) $assoc['course'] : 0;
+        $all    = isset( $assoc['all'] );
+        if ( $course <= 0 && ! $all ) {
+            \WP_CLI::error( 'Use --course=<ID> or --all' );
+        }
+
+        $logger = new Logger();
+        $stats  = [
+            'button_url_set_count'    => 0,
+            'button_url_set_examples' => [],
+            'button_url_cleared_count' => 0,
+            'button_url_cleared_examples' => [],
+        ];
+
+        $ids = [];
+        if ( $course > 0 ) {
+            $ids = [ $course ];
+        } elseif ( $all ) {
+            $ids = \get_posts( [
+                'post_type'      => 'sfwd-courses',
+                'post_status'    => 'any',
+                'fields'         => 'ids',
+                'numberposts'    => -1,
+                'meta_query'     => [ [ 'key' => '_wplms_old_id', 'compare' => 'EXISTS' ] ],
+            ] );
+        }
+
+        foreach ( $ids as $cid ) {
+            $pid = hv_get_linked_product_id_for_course( (int) $cid );
+            hv_ld_sync_button_url( (int) $cid, $pid, $logger, $stats );
+        }
+
+        \WP_CLI::success( sprintf( 'button_url set=%d cleared=%d log=%s', $stats['button_url_set_count'], $stats['button_url_cleared_count'], $logger->path() ) );
     }
 
     public static function cmd_dedupe_certs( $args, $assoc ) {
