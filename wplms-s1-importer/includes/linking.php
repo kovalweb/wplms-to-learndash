@@ -104,22 +104,27 @@ function hv_ld_sync_button_url(
         return false;
     }
 
-    $url    = '';
-    $reason = '';
-    $sellable = false;
+    $url          = '';
+    $reason       = '';
+    $sellable     = false;
+    $product_type = '';
+    $url_source   = '';
 
     if ( $product_id > 0 && function_exists( '\\wc_get_product' ) ) {
         $product = \wc_get_product( $product_id );
         if ( $product ) {
+            $product_type = $product->get_type();
             if ( $product->get_status() === 'publish' ) {
                 $price = $product->get_price();
                 if ( '' !== (string) $price && is_numeric( $price ) && (float) $price > 0 ) {
                     $sellable = true;
-                    if ( $product->is_type( 'simple' ) ) {
-                        $url = $product->add_to_cart_url();
-                    } else {
-                        $url = \get_permalink( $product_id );
+                    $url        = \add_query_arg( 'add-to-cart', $product_id, \wc_get_cart_url() );
+                    $url_source = 'cart';
+                    if ( ! $product->is_purchasable() ) {
+                        $url        = \get_permalink( $product_id );
+                        $url_source = 'product';
                     }
+                    $url    = \esc_url_raw( $url );
                     $reason = 'sellable';
                 } else {
                     $reason = 'no_price';
@@ -150,12 +155,25 @@ function hv_ld_sync_button_url(
         }
         if ( $changed ) {
             if ( $logger ) {
-                $logger->write( 'button_url_set', [ 'course_id' => $course_id, 'product_id' => $product_id, 'url' => $url, 'reason' => 'sellable' ] );
+                $logger->write( 'button_url_set', [
+                    'course_id'    => $course_id,
+                    'product_id'   => $product_id,
+                    'url'          => $url,
+                    'reason'       => 'sellable',
+                    'button_url_source' => $url_source,
+                    'product_type'     => $product_type,
+                ] );
             }
             if ( is_array( $stats ) ) {
                 $stats['button_url_set_count'] = array_get( $stats, 'button_url_set_count', 0 ) + 1;
                 if ( count( $stats['button_url_set_examples'] ) < 5 ) {
-                    $stats['button_url_set_examples'][] = [ 'course_id' => $course_id, 'product_id' => $product_id, 'url' => $url ];
+                    $stats['button_url_set_examples'][] = [
+                        'course_id'    => $course_id,
+                        'product_id'   => $product_id,
+                        'url'          => $url,
+                        'button_url_source' => $url_source,
+                        'product_type'     => $product_type,
+                    ];
                 }
             }
         }
